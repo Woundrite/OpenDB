@@ -1,0 +1,9 @@
+build/
+*.o
+*.obj
+*.exe
+node_modules/
+dist/
+*.swp
+.idea/
+.vscode/
