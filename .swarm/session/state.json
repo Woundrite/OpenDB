@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "writtenAt": 1783611010061,
+  "writtenAt": 1783614793217,
   "toolAggregates": {
     "get_qa_gate_profile": {
       "tool": "get_qa_gate_profile",
@@ -25,10 +25,10 @@
     },
     "bash": {
       "tool": "bash",
-      "count": 66,
-      "successCount": 66,
+      "count": 70,
+      "successCount": 70,
       "failureCount": 0,
-      "totalDuration": 790481
+      "totalDuration": 828006
     },
     "invalid": {
       "tool": "invalid",
@@ -172,17 +172,17 @@
     },
     "write": {
       "tool": "write",
-      "count": 50,
-      "successCount": 50,
+      "count": 56,
+      "successCount": 56,
       "failureCount": 0,
-      "totalDuration": 5069
+      "totalDuration": 5210
     },
     "edit": {
       "tool": "edit",
-      "count": 29,
-      "successCount": 29,
+      "count": 33,
+      "successCount": 33,
       "failureCount": 0,
-      "totalDuration": 2295
+      "totalDuration": 2558
     },
     "write_drift_evidence": {
       "tool": "write_drift_evidence",
@@ -309,7 +309,7 @@
           "toolCalls": 0,
           "consecutiveErrors": 0,
           "hardLimitHit": false,
-          "lastSuccessTimeMs": 1783611010056,
+          "lastSuccessTimeMs": 1783614793216,
           "recentToolCalls": [],
           "warningIssued": false,
           "warningReason": "",
