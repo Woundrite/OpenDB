@@ -44,6 +44,11 @@ public:
     static DbError internal(std::string msg = "") {
         return DbError(DbErrorCode::Internal, std::move(msg));
     }
+    // Sentinel success: returned by storage engine methods that have no
+    // failure path to express. Code() == Internal but message() == ""
+    // by convention; callers check message().empty() rather than code().
+    static DbError sentinel() { return DbError(DbErrorCode::Internal, ""); }
+    bool isSentinel() const noexcept { return message_.empty(); }
 
     std::string toString() const {
         const char* name = "Unknown";

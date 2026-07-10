@@ -36,9 +36,9 @@ class IStorageEngine {
 public:
     virtual ~IStorageEngine() = default;
 
-    // Point lookup of a record by key.
-    //  - Returns the most recent committed, non-tombstone version visible to this
-    //    txn, or std::nullopt if no such record exists.
+    // Note: a single txn may incur many IStorageEngine calls (get, put, scan).
+    // The engine may stage writes uncommitted; versions for uncommitted txns
+    // are only visible to that txn until prepare/commit succeeds.
     virtual std::optional<Tuple> get(TxnId txn,
                                        const std::string& table,
                                        const Value& key) = 0;
@@ -68,7 +68,14 @@ public:
 
     // Two-phase commit lifecycle.
     virtual DbError prepare(TxnId txn) = 0;
+    // commit(txn) without a visibleSeq uses a generic engine-internal seq for
+    // engines that don't care about MVCC (trivially correct, but loses
+    // visibility coordination with other engine implementations).
     virtual DbError commit(TxnId txn) = 0;
+    // commit(txn, visibleSeq) takes an explicit visibleSeq — TransactionManager
+    // passed it after committing the txn. Engines that implement version-based
+    // visibility MUST prefer this form when the core loop is the caller.
+    virtual DbError commit(TxnId txn, std::uint64_t visibleSeq) = 0;
     virtual DbError abort(TxnId txn) = 0;
 };
 

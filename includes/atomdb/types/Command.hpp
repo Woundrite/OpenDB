@@ -18,7 +18,9 @@ namespace atomdb {
 // Command: the universal IR crossing the front-end -> core boundary (spec §3.2).
 // The only object a front-end may hand to the core engine; no front-end may pass
 // raw SQL / JSON past this point.
-//
+
+enum class CommandType { Select, Insert, Update, Delete };
+
 // Invariants enforced in the constructor (throw std::invalid_argument on
 // violation). A parser that produces an invalid combination is buggy; we'd
 // rather fail loud here than dispatch to Undefined Behaviour downstream.
