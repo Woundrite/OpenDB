@@ -84,3 +84,10 @@
 {"ts":"2026-07-11T09:11:46.540Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"./build.ps1 test 2>&1"}
 {"ts":"2026-07-11T09:13:42.047Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"./build.ps1 smoke 2>&1"}
 {"ts":"2026-07-11T09:15:23.368Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"git add -A && git commit -m \"phase 4, item 7: adapt InMemoryStorageEngine -> InMemoryStorageProvider (composition: provider owns engine, implements IStorageProvider with DDL, capabilities, lifecycle)\" && git log --oneline -2"}
+{"ts":"2026-07-11T09:16:34.773Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"./build.ps1 build 2>&1"}
+{"ts":"2026-07-11T09:19:51.057Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"g++ -std=c++2b -Wall -Wextra -Wpedantic -Werror -Iincludes -fsyntax-only -x c++ includes/atomdb/storage/Pager.hpp 2>&1"}
+{"ts":"2026-07-11T09:20:11.576Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"g++ -std=c++2b -Wall -Wextra -Wpedantic -Werror -Iincludes -c src/Pager.cpp -o build/obj/Pager.obj 2>&1"}
+{"ts":"2026-07-11T09:20:33.951Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"mkdir -p build/obj && g++ -std=c++2b -Wall -Wextra -Wpedantic -Werror -Iincludes -c src/Pager.cpp -o build/obj/Pager.obj 2>&1"}
+{"ts":"2026-07-11T09:20:53.712Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"./build.ps1 test 2>&1"}
+{"ts":"2026-07-11T09:21:49.816Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"./build.ps1 smoke 2>&1"}
+{"ts":"2026-07-11T09:22:02.550Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"git add -A && git commit -m \"phase 4, item 8: storage/Pager.hpp + src/Pager.cpp — 4KiB paged file IO with CRC32 header, free-list allocator, portable fdatasync via fstream::sync\" && git log --oneline -2"}

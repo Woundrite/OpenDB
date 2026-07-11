@@ -18,26 +18,25 @@ Profile hash to be locked by the framework after first critic-approved plan snap
 
 | Tool | Calls | Success | Failed | Avg Duration |
 |------|-------|---------|--------|--------------|
-| read | 322 | 322 | 0 | 1100ms |
-| bash | 86 | 86 | 0 | 13552ms |
-| test_runner | 66 | 66 | 0 | 10520ms |
-| glob | 63 | 63 | 0 | 4059ms |
+| read | 298 | 298 | 0 | 1179ms |
+| test_runner | 63 | 63 | 0 | 10857ms |
+| glob | 60 | 60 | 0 | 4245ms |
 | apply_patch | 56 | 56 | 0 | 118ms |
-| write | 45 | 45 | 0 | 125ms |
-| edit | 45 | 45 | 0 | 86ms |
+| bash | 47 | 47 | 0 | 13721ms |
 | task | 41 | 41 | 0 | 235711ms |
+| write | 39 | 39 | 0 | 112ms |
 | update_task_status | 36 | 36 | 0 | 180ms |
 | invalid | 32 | 32 | 0 | 80ms |
+| edit | 26 | 26 | 0 | 85ms |
 | search | 16 | 16 | 0 | 59603ms |
-| todowrite | 7 | 7 | 0 | 20ms |
 | save_plan | 6 | 6 | 0 | 156ms |
 | phase_complete | 4 | 4 | 0 | 4776ms |
 | get_approved_plan | 3 | 3 | 0 | 28ms |
 | syntax_check | 3 | 3 | 0 | 37953ms |
+| todowrite | 3 | 3 | 0 | 14ms |
 | knowledge_query | 2 | 2 | 0 | 14ms |
 | set_qa_gates | 2 | 2 | 0 | 61ms |
 | build_check | 2 | 2 | 0 | 172061ms |
-| batch_symbols | 2 | 2 | 0 | 118ms |
 | get_qa_gate_profile | 1 | 1 | 0 | 25ms |
 | checkpoint | 1 | 1 | 0 | 258ms |
 | skill | 1 | 1 | 0 | 308ms |
