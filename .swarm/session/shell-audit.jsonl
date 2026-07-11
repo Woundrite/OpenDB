@@ -81,3 +81,6 @@
 {"ts":"2026-07-11T05:18:02.362Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"./build.ps1 test 2>&1"}
 {"ts":"2026-07-11T06:57:58.959Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"./build.ps1 test 2>&1"}
 {"ts":"2026-07-11T06:59:43.826Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"git status; \"---\"; git add -A; git commit -m \"phase 4, items 1-4: extend Value with Blob/Date/Timestamp, add Schema/PartitionPolicy, add pluggable Storage & Access contracts\" && git log --oneline -3"}
+{"ts":"2026-07-11T09:11:46.540Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"./build.ps1 test 2>&1"}
+{"ts":"2026-07-11T09:13:42.047Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"./build.ps1 smoke 2>&1"}
+{"ts":"2026-07-11T09:15:23.368Z","sessionID":"ses_0b9f7e4c8ffeBmWVRjcpEDO3p0","agent":"build","tool":"bash","command":"git add -A && git commit -m \"phase 4, item 7: adapt InMemoryStorageEngine -> InMemoryStorageProvider (composition: provider owns engine, implements IStorageProvider with DDL, capabilities, lifecycle)\" && git log --oneline -2"}
