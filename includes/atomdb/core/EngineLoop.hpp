@@ -67,9 +67,10 @@ private:
         LockMode mode = (cmd.type == CommandType::Select) ? LockMode::Shared
                                                           : LockMode::Exclusive;
         // We use an interleaving pattern with the deadlock detector. The proper
-        // fix would be to spawn acquire on a worker; for v0.1 we make a single
-        // attempt to detect a cycle *before* blocking. If the wait-for graph
-        // closes back to this txn at the moment we call detectCycle, abort now.
+        // fix (spec §2.2, Phase 5): spawn acquire on a worker thread; recheck
+        // the wait-for graph on every wake. For v0.1 we make a single attempt
+        // to detect a cycle *before* blocking. If the wait-for graph closes
+        // back to this txn at the moment we call detectCycle, abort now.
         // Otherwise block via acquire until granted. (In a real blocking
         // scheduler we'd recheck the graph on every wake; for v0.1 the single
         // precheck detects the most common deterministic deadlock.)
