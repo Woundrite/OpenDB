@@ -37,7 +37,35 @@ function Invoke-Tests {
     & g++ -std=c++2b -Wall -Wextra -Wpedantic -Werror -I"$Root\includes" -c "$Root\tests\main.cpp" -o "$Root\build\tests\main.obj"
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    $objs = Get-ChildItem -Path "$Root\build\tests" -Filter "*.obj" | ForEach-Object { $_.FullName }
+    # Ensure the library objects (src/*.cpp except main.cpp) are built and linked into
+    # the test runner. (src/main.cpp defines `main` for the atomdb executable; the test
+    # runner has its own main in tests/main.cpp.)
+    $needBuild = $false
+    New-Item -ItemType Directory -Force -Path "$Root\build\src" | Out-Null
+    # Remove any pre-existing src/main.obj (would conflict with tests/main.obj).
+    $mainObj = Join-Path "$Root\build\src" "main.obj"
+    if (Test-Path $mainObj) { Remove-Item -LiteralPath $mainObj }
+    foreach ($src in Get-ChildItem -Path "$Root\src" -Filter "*.cpp") {
+        if ($src.Name -eq "main.cpp") { continue } # not a library object
+        $obj = Join-Path "$Root\build\src" ($src.BaseName + ".obj")
+        if (-not (Test-Path $obj)) {
+            $needBuild = $true
+            break
+        }
+    }
+    if ($needBuild) {
+        foreach ($src in Get-ChildItem -Path "$Root\src" -Filter "*.cpp") {
+            if ($src.Name -eq "main.cpp") { continue }
+            $obj = Join-Path "$Root\build\src" ($src.BaseName + ".obj")
+            Write-Host "[compile] $($src.Name)"
+            & g++ -std=c++2b -Wall -Wextra -Wpedantic -Werror -I"$Root\includes" -c $src.FullName -o $obj
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
+    }
+    $srcObjs = Get-ChildItem -Path "$Root\build\src" -Filter "*.obj" | ForEach-Object { $_.FullName }
+
+    $testObjs = Get-ChildItem -Path "$Root\build\tests" -Filter "*.obj" | ForEach-Object { $_.FullName }
+    $objs = $testObjs + $srcObjs
     Write-Host "[link] test_runner"
     & g++ -Wall -Wextra -Wpedantic -Werror $objs -o "$Root\build\test_runner.exe" -pthread
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

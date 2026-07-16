@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cassert>
+#include <cstdio>
 #include <stdexcept>
 
 namespace atomdb {
@@ -10,7 +11,10 @@ namespace atomdb {
 Pager::Pager(const std::string& uri) {
     openFile(uri);
     if (!loadHeader()) {
-        // New file: initialize header.
+        // New file (or corrupted): initialize header.
+        // loadHeader() left the stream in a bad state (failbit/eofbit) after the
+        // short read on a 0-byte file. Clear before writing.
+        file_.clear();
         header_.magic = MAGIC;
         header_.version = VERSION;
         header_.pageCount = 1; // page 0 exists
@@ -29,9 +33,11 @@ bool Pager::readPage(PageId id, std::vector<std::uint8_t>& out) {
     if (!readRaw(id, raw)) return false;
 
     // Verify CRC32 (first 4 bytes of the page).
+    // CRC is computed only over the payload (offset DATA_PAGE_HEADER_SIZE .. end).
     std::uint32_t stored_crc = 0;
     std::memcpy(&stored_crc, raw.data(), 4);
-    std::uint32_t computed = crc32(raw.data() + 4, raw.size() - 4);
+    std::uint32_t computed = crc32(raw.data() + DATA_PAGE_HEADER_SIZE,
+                                   raw.size() - DATA_PAGE_HEADER_SIZE);
     if (stored_crc != computed) return false;
 
     // Strip header, return payload.
@@ -57,8 +63,9 @@ Pager::PageId Pager::writePage(std::optional<PageId> id, const std::vector<std::
     std::vector<std::uint8_t> page(PAGE_SIZE);
     // Payload starts at offset DATA_PAGE_HEADER_SIZE.
     std::memcpy(page.data() + DATA_PAGE_HEADER_SIZE, data.data(), DATA_PAGE_PAYLOAD_SIZE);
-    // Compute CRC32 over payload.
-    std::uint32_t crc = crc32(data.data(), DATA_PAGE_PAYLOAD_SIZE);
+    // Compute CRC32 over payload (matching the read-side range).
+    std::uint32_t crc = crc32(page.data() + DATA_PAGE_HEADER_SIZE,
+                              PAGE_SIZE - DATA_PAGE_HEADER_SIZE);
     std::memcpy(page.data(), &crc, 4);
     // Reserved bytes at offset 4..7 remain zero.
 
@@ -83,6 +90,7 @@ void Pager::close() {
 bool Pager::readRaw(PageId id, std::vector<std::uint8_t>& buf) {
     if (id >= header_.pageCount) return false;
     buf.resize(PAGE_SIZE);
+    file_.clear(); // Reset any stale eofbit/failbit before reading.
     file_.seekg(static_cast<std::streamoff>(id) * PAGE_SIZE, std::ios::beg);
     if (!file_) return false;
     file_.read(reinterpret_cast<char*>(buf.data()), PAGE_SIZE);

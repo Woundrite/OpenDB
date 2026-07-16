@@ -47,9 +47,12 @@ inline void fail(std::string_view file, int line, std::string_view msg) {
 inline int run_all() {
     int passed = 0;
     int failed = 0;
-    for (const auto& t : Registry::instance().tests()) {
+    auto it = Registry::instance().tests().begin();
+    for (; it != Registry::instance().tests().end(); ++it) {
+        const auto& t = *it;
         int before = FailureCount::ref();
         std::printf("[ RUN      ] %s\n", t.name.c_str());
+        std::fflush(stdout);
         try {
             t.body();
         } catch (const std::exception& e) {
@@ -65,6 +68,7 @@ inline int run_all() {
             std::printf("[  FAILED  ] %s\n", t.name.c_str());
             ++failed;
         }
+        std::fflush(stdout);
     }
     std::printf("\n==== PASSED %d / FAILED %d ====\n", passed, failed);
     return failed == 0 ? 0 : 1;

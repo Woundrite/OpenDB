@@ -77,6 +77,12 @@ public:
     // Check if file is open.
     bool isOpen() const noexcept { return file_.is_open(); }
 
+    // Allocate a new page: pop from free list if non-empty, else extend file.
+    PageId allocatePage();
+
+    // Free a page: push onto free list.
+    void freePage(PageId id);
+
 private:
     // File header (page 0 layout).
     struct Header {
@@ -102,20 +108,14 @@ private:
     // Compute CRC32 (polynomial 0xEDB88320, bit-reflected).
     static std::uint32_t crc32(const std::uint8_t* data, std::size_t len);
 
-    // Allocate a new page: pop from free list if non-empty, else extend file.
-    PageId allocatePage();
-
-    // Free a page: push onto free list.
-    void freePage(PageId id);
+    // Platform-specific fdatasync/FlushFileBuffers on the underlying file handle.
+    void fdatasyncFile();
 
     // Read header from page 0.
     bool loadHeader();
 
     // Write header to page 0.
     void flushHeader();
-
-    // Platform-specific fdatasync/FlushFileBuffers on the underlying file handle.
-    void fdatasyncFile();
 
     // Open file with appropriate flags (binary, create if missing).
     void openFile(const std::string& uri);
