@@ -13,6 +13,7 @@
 
 #include "atomdb/types/Column.hpp"
 #include "atomdb/types/Value.hpp"
+#include <iostream>
 
 namespace atomdb {
 

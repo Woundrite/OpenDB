@@ -205,7 +205,7 @@ private:
         bool tombstone = false;
     };
 
-    // Precondition: caller holds mutex_.
+// Precondition: caller holds mutex_.
     bool isVisibleUnlocked(TxnId txn, const Version& v) const {
         if (v.commitSeq == 0) {
             // Staged by some txn; visible only if staged by this txn (read-your-writes).
