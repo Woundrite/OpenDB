@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "id": "fb8136ba-559d-48c4-8465-e24fd47f8580",
+      "verdict": "approved",
+      "reviewed_at": "2026-07-12T11:36:50.788Z",
+      "scope_hash": "8d7fa582044ce472ffc0a500a444ebb8eeeaf310adfcbc6b8f85ba3495420611",
+      "agent": "curator",
+      "filename": "2026-07-12-fb8136ba-559d-48c4-8465-e24fd47f8580.json"
+    },
+    {
+      "id": "7987349b-4b97-4f0c-833b-8b1b5da682fb",
+      "verdict": "approved",
+      "reviewed_at": "2026-07-14T15:47:41.792Z",
+      "scope_hash": "6451c369cc410c5a6421ff4e662d99603215a99419bd41e1ec0db94f63fc7c7f",
+      "agent": "curator",
+      "filename": "2026-07-14-7987349b-4b97-4f0c-833b-8b1b5da682fb.json"
+    },
+    {
+      "id": "e19adcdc-9bdc-432f-8244-29c3f07a0374",
+      "verdict": "approved",
+      "reviewed_at": "2026-07-15T03:27:18.532Z",
+      "scope_hash": "6451c369cc410c5a6421ff4e662d99603215a99419bd41e1ec0db94f63fc7c7f",
+      "agent": "curator",
+      "filename": "2026-07-15-e19adcdc-9bdc-432f-8244-29c3f07a0374.json"
+    },
+    {
+      "id": "8b8f3fe4-1668-451c-95da-7b3f46a3881e",
+      "verdict": "approved",
+      "reviewed_at": "2026-07-15T17:15:58.085Z",
+      "scope_hash": "a5b5544992604a22a7e1b4dd88fd13c1757f0a21b1fd33518adcc6745d7f7f54",
+      "agent": "curator",
+      "filename": "2026-07-15-8b8f3fe4-1668-451c-95da-7b3f46a3881e.json"
+    },
+    {
+      "id": "fe9d432e-3d3b-4007-af6a-61634de1f85f",
+      "verdict": "approved",
+      "reviewed_at": "2026-07-16T06:22:15.831Z",
+      "scope_hash": "7a1f223a5513234037c1f19621e7d104b8fc33b9274c665ac09902738b17ce34",
+      "agent": "curator",
+      "filename": "2026-07-16-fe9d432e-3d3b-4007-af6a-61634de1f85f.json"
+    },
+    {
+      "id": "e5c227ba-5fd0-4734-adae-d8ec7326afa0",
+      "verdict": "approved",
+      "reviewed_at": "2026-07-18T11:30:21.421Z",
+      "scope_hash": "d5283f75db1511e0229aa69d69448c749b585eeace8f8c947178534bcb72f010",
+      "agent": "curator",
+      "filename": "2026-07-18-e5c227ba-5fd0-4734-adae-d8ec7326afa0.json"
+    }
+  ]
+}
