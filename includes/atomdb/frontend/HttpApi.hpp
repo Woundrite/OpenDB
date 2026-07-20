@@ -7,9 +7,9 @@
 #include <vector>
 
 #include "atomdb/contracts/IAccessPlugin.hpp"
-#include "atomdb/contracts/ICommandSource.hpp"
 #include "atomdb/contracts/IStorageProvider.hpp"
 #include "atomdb/contracts/IStorageEngine.hpp"
+#include "atomdb/core/EngineDispatcher.hpp"
 #include "atomdb/core/TransactionManager.hpp"
 #include "atomdb/core/LockManager.hpp"
 #include "atomdb/core/DeadlockDetector.hpp"
@@ -28,8 +28,8 @@ namespace atomdb {
 
 // HttpApiAccessPlugin: minimal in-process HTTP/JSON front-end.
 // Per spec §4.1/§4.2, this is an IAccessPlugin (Server mode) that speaks JSON.
-// Since MSYS2 g++ 14 doesn't have C++23 <net> networking, this is a stub that
-// exposes a `handleRequest(reqJson)` method instead of binding a socket.
+// Since MSYS2 g++ 14 doesn't have C++23 <net> networking, this exposes a
+// `handleRequest(reqJson)` method instead of binding a socket.
 // A real deployment would wrap this in an ASIO/boost::beast/cpp-httplib server.
 //
 // Request format (compact JSON):
@@ -94,9 +94,12 @@ public:
     // Not part of IAccessPlugin; used by tests to simulate a request.
     std::string handleRequest(const std::string& requestJson) {
         if (!opened_) return JsonEncoder::encode(DbError::internal("plugin not open"));
+        if (!dispatcher_) return JsonEncoder::encode(DbError::internal("no dispatcher"));
+
+        // Parse request
         auto req = parseJsonRequest(requestJson);
         if (!req) return JsonEncoder::encode(DbError::parseError("invalid request JSON"));
-        return handleParsedRequest(*req);
+        return executeRequest(*req);
     }
 
 private:
@@ -105,65 +108,79 @@ private:
     IEngineDispatcher* dispatcher_ = nullptr;
     bool opened_ = false;
 
-    // Parse and dispatch a parsed JsonRequest
-    std::string handleParsedRequest(const JsonRequest& req) {
+    // Local core components for direct execution
+    TransactionManager txnm_;
+    LockManager lockMgr_;
+    DeadlockDetector deadlock_{lockMgr_};
+
+    struct JsonRequest {
+        std::string type;           // "query" | "begin" | "commit" | "rollback"
+        std::string sql;            // for query
+        std::optional<std::uint64_t> txnId; // optional
+    };
+
+    std::optional<JsonRequest> parseJsonRequest(const std::string& json) {
+        JsonRequest req;
+        auto findKey = [&](const std::string& key) -> std::optional<std::string> {
+            std::string search = "\"" + key + "\"";
+            auto p = json.find(search);
+            if (p == std::string::npos) return std::nullopt;
+            p = json.find(':', p);
+            if (p == std::string::npos) return std::nullopt;
+            p = json.find_first_not_of(" \t\n\r", p + 1);
+            if (p == std::string::npos) return std::nullopt;
+            if (json[p] == '"') {
+                auto end = json.find('"', p + 1);
+                if (end == std::string::npos) return std::nullopt;
+                return json.substr(p + 1, end - p - 1);
+            }
+            auto end = json.find_first_of(",}", p);
+            if (end == std::string::npos) return std::nullopt;
+            return json.substr(p, end - p);
+        };
+        auto type = findKey("type");
+        if (!type) return std::nullopt;
+        req.type = *type;
+        if (auto s = findKey("sql")) req.sql = *s;
+        if (auto t = findKey("txnId")) {
+            try { req.txnId = std::stoull(*t); } catch (...) {}
+        }
+        return req;
+    }
+
+    std::string executeRequest(const JsonRequest& req) {
         if (req.type == "begin") {
-            return handleBegin();
+            TxnId tid = txnm_.beginTxn();
+            return "{\"success\":true,\"txnId\":" + std::to_string(tid.value()) + "}";
         }
         if (req.type == "commit") {
-            return handleCommit(req.txnId);
+            if (!req.txnId) return JsonEncoder::encode(DbError::notSupported("commit requires txnId"));
+            TxnId txnId{*req.txnId};
+            if (!txnm_.commitTxn(txnId)) {
+                return JsonEncoder::encode(DbError::internal("txn not found or already closed"));
+            }
+            auto err = storage_->engine()->commit(txnId, txnm_.visibleSeq());
+            if (!err.isSentinel()) return JsonEncoder::encode(err);
+            return "{\"success\":true}";
         }
         if (req.type == "rollback") {
-            return handleRollback(req.txnId);
+            if (!req.txnId) return JsonEncoder::encode(DbError::notSupported("rollback requires txnId"));
+            TxnId txnId{*req.txnId};
+            storage_->engine()->abort(txnId);
+            txnm_.abortTxn(txnId);
+            return "{\"success\":true}";
         }
         if (req.type == "query") {
-            return handleQuery(req.sql, req.txnId);
+            auto stmts = parser_->parseAll(req.sql);
+            if (stmts.empty()) {
+                return JsonEncoder::encode(DbError::parseError(parser_->error()));
+            }
+            return executeStatement(stmts[0], req.txnId);
         }
         return JsonEncoder::encode(DbError::notSupported("unknown request type: " + req.type));
     }
 
-    std::string handleBegin() {
-        TxnId tid = txnm_.beginTxn();
-        return "{\"success\":true,\"txnId\":" + std::to_string(tid.value()) + "}";
-    }
-
-    std::string handleCommit(std::optional<std::uint64_t> txnIdOpt) {
-        if (!txnIdOpt) {
-            return JsonEncoder::encode(DbError::notSupported("commit requires txnId"));
-        }
-        TxnId txnId{*txnIdOpt};
-        if (!txnm_.commitTxn(txnId)) {
-            return JsonEncoder::encode(DbError::internal("txn not found or already closed"));
-        }
-        auto err = storage_->engine()->commit(txnId, txnm_.visibleSeq());
-        if (!err.isSentinel()) return JsonEncoder::encode(err);
-        return "{\"success\":true}";
-    }
-
-    std::string handleRollback(std::optional<std::uint64_t> txnIdOpt) {
-        if (!txnIdOpt) {
-            return JsonEncoder::encode(DbError::notSupported("rollback requires txnId"));
-        }
-        TxnId txnId{*txnIdOpt};
-        storage_->engine()->abort(txnId);
-        txnm_.abortTxn(txnId);
-        return "{\"success\":true}";
-    }
-
-    std::string handleQuery(const std::string& sql, std::optional<std::uint64_t> explicitTxnId) {
-        // Parse SQL into SqlStatements
-        auto stmts = parser_->parseAll(sql);
-        if (stmts.empty()) {
-            return JsonEncoder::encode(DbError::parseError(parser_->error()));
-        }
-
-        // For simplicity, execute first statement only (single-statement API)
-        // In real impl, we'd iterate and commit between statements.
-        return executeStatement(stmts[0], explicitTxnId);
-    }
-
     std::string executeStatement(const SqlStatement& stmt, std::optional<std::uint64_t> explicitTxnId) {
-        // DDL: CREATE/DROP TABLE
         if (auto* ddl = std::get_if<DdlCreateTable>(&stmt)) {
             auto err = storage_->createTable(ddl->schema);
             if (!err.isSentinel()) return JsonEncoder::encode(err);
@@ -174,11 +191,10 @@ private:
             if (!err.isSentinel()) return JsonEncoder::encode(err);
             return "{\"success\":true}";
         }
-        if (std::get_if<SqlTxnBegin>(&stmt)) return handleBegin();
-        if (std::get_if<SqlTxnCommit>(&stmt)) return handleCommit(explicitTxnId);
-        if (std::get_if<SqlTxnRollback>(&stmt)) return handleRollback(explicitTxnId);
+        if (std::get_if<SqlTxnBegin>(&stmt)) return executeRequest({"begin", "", {}});
+        if (std::get_if<SqlTxnCommit>(&stmt)) return executeRequest({"commit", "", {}});
+        if (std::get_if<SqlTxnRollback>(&stmt)) return executeRequest({"rollback", "", {}});
 
-        // DML: Command
         if (auto* cmd = std::get_if<Command>(&stmt)) {
             return handleDml(*cmd, explicitTxnId);
         }
@@ -190,19 +206,18 @@ private:
         TxnId txnId = explicitTxnId ? TxnId{*explicitTxnId} : txnm_.beginTxn();
 
         LockMode mode = (cmd.type == CommandType::Select) ? LockMode::Shared : LockMode::Exclusive;
-        
+
         // Deadlock pre-check
         auto cycle_victim = deadlock_.detectCycle(txnId);
         if (cycle_victim.has_value()) {
             txnm_.abortTxn(*cycle_victim);
-            lock_mgr_.release(*cycle_victim);
+            lockMgr_.release(*cycle_victim);
             return JsonEncoder::encode(DbError::deadlock("cycle detected for " + txnId.toString()));
         }
 
         // Acquire lock (blocks until granted)
-        lock_mgr_.acquire(txnId, cmd.table, mode);
+        lockMgr_.acquire(txnId, cmd.table, mode);
 
-        // Dispatch by command type
         ResultSet rs;
         std::optional<DbError> error_opt;
 
@@ -210,11 +225,9 @@ private:
             case CommandType::Select: {
                 rs.success = true;
                 storage_->engine()->scan(txnId, cmd.table, [&](const Tuple& row) {
-                    if (!cmd.where.has_value() || cmd.where->evaluate(row)) {
-                        // "*" projection means all columns, treat as no projection
-                        bool wantsAll = cmd.projections.empty() ||
-                            (cmd.projections.size() == 1 && cmd.projections[0] == "*");
-                        if (wantsAll) {
+                    if (!cmd.where || cmd.where->evaluate(row)) {
+                        if (cmd.projections.empty() ||
+                            (cmd.projections.size() == 1 && cmd.projections[0] == "*")) {
                             rs.rows.push_back(row);
                         } else {
                             Tuple projected;
@@ -231,28 +244,28 @@ private:
             }
             case CommandType::Insert: {
                 Value key = Value::null();
-                auto idOpt = cmd.values->maybeGet("_id");
-                if (idOpt && !idOpt->isNull()) key = *idOpt;
+                if (cmd.values) {
+                    auto idOpt = cmd.values->maybeGet("_id");
+                    if (idOpt && !idOpt->isNull()) key = *idOpt;
+                }
                 auto err = storage_->engine()->put(txnId, cmd.table, key, *cmd.values);
                 if (!err.isSentinel()) error_opt = err;
-                else rs = ResultSet(true, {}); // success
+                else rs = ResultSet(true, {});
                 break;
             }
             case CommandType::Update: {
                 if (!cmd.where) { error_opt = DbError::internal("Update requires WHERE"); break; }
                 if (!cmd.values) { error_opt = DbError::internal("Update requires values"); break; }
-                // Scan to find matching keys, then re-put each
                 std::vector<Value> keysToUpdate;
                 storage_->engine()->scan(txnId, cmd.table, [&](const Tuple& row) {
                     if (cmd.where->evaluate(row)) {
-                        auto pkOpt = row.maybeGet(cmd.table.empty() ? "_id" : cmd.table);
+                        auto pkOpt = row.maybeGet("_id");
                         if (pkOpt) keysToUpdate.push_back(*pkOpt);
                     }
                 });
                 bool any = false;
                 for (const auto& k : keysToUpdate) {
                     Tuple row = *cmd.values;
-                    // Ensure pk is preserved
                     row.set("_id", k);
                     auto err = storage_->engine()->put(txnId, cmd.table, k, row);
                     if (!err.isSentinel()) { error_opt = err; break; }
@@ -284,7 +297,7 @@ private:
         }
 
         // Release the lock
-        lock_mgr_.release(txnId);
+        lockMgr_.release(txnId);
 
         if (error_opt) return JsonEncoder::encode(*error_opt);
 
@@ -296,11 +309,6 @@ private:
         }
         return JsonEncoder::encode(rs);
     }
-
-    // State
-    TransactionManager txnm_;
-    LockManager lock_mgr_;
-    DeadlockDetector deadlock_{lock_mgr_};
 };
 
 } // namespace atomdb
