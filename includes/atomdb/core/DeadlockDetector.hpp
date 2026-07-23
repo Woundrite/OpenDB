@@ -35,9 +35,9 @@ public:
     explicit DeadlockDetector(LockManager& lm) : lock_manager_(lm) {}
 
     // Returns the TxnId that should be aborted (origin) if a cycle was found,
-    // or std::nullopt if no cycle is reachable from origin's wait chain. Limit
-    // chain depth to break out of pathological long walks (the walk is
-    // effectively bounded by the number of concurrent txns; cap defensively).
+    // or std::nullopt if no cycle is reachable from origin's wait chain.
+    // Chain depth is bounded to prohibit unbounded recursion in the
+    // (extremely unlikely) case of a non-terminating chain.
     std::optional<TxnId> detectCycle(TxnId origin) const {
         // First hop: origin waits on some table X.
         std::string table = lock_manager_.waiterTable(origin);

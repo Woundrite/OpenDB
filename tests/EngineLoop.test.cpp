@@ -68,13 +68,19 @@ TEST(Engine_Loop_Insert_Select_Round_Trip) {
     EXPECT(src.presented_results[1] == "name=b,_id=2");
 }
 
-TEST(Engine_Loop_Update_Stub_Unsupported) {
+TEST(Engine_Loop_Update_Works) {
     TransactionManager txnm;
     LockManager        lkm;
     DeadlockDetector   dd(lkm);
     InMemoryStorageEngine storage;
     ScriptedSource       src;
 
+    // First insert a row to update
+    src.cmds.push_back(Command(CommandType::Insert, "u",
+        std::nullopt,
+        Tuple::make({{"name", Value::text("a")}, {"_id", Value::integer(1)}})));
+    
+    // Then update it
     Predicate wh(ComparisonNode::make("_id", ComparisonOp::Equals, Value::integer(1)));
     src.cmds.push_back(Command(
         CommandType::Update, "u",
@@ -84,8 +90,19 @@ TEST(Engine_Loop_Update_Stub_Unsupported) {
     EngineLoop engine(src, storage, txnm, lkm, dd);
     engine.run();
 
-    EXPECT_EQ(src.presented_errors.size(), std::size_t{1});
-    EXPECT(src.presented_errors[0].code() == DbErrorCode::NotSupported);
+    // Should have no errors
+    EXPECT_EQ(src.presented_errors.size(), std::size_t{0});
+    
+    // Verify the update worked by selecting the row
+    ScriptedSource src2;
+    src2.cmds.push_back(Command(CommandType::Select, "u",
+        Predicate(ComparisonNode::make("_id", ComparisonOp::Equals, Value::integer(1)))));
+    
+    EngineLoop engine2(src2, storage, txnm, lkm, dd);
+    engine2.run();
+    
+    EXPECT_EQ(src2.presented_results.size(), std::size_t{1});
+    EXPECT(src2.presented_results[0].find("Z") != std::string::npos);
 }
 
 TEST(Engine_Loop_Where_Filter_Narrows_Select) {

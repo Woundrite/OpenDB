@@ -35,7 +35,7 @@ namespace atomdb {
 // Capabilities: Durable (data survives process exit via fsync on close/sync),
 // RandomAccess (B+Tree O(log n) get), OrderedScan (B+Tree leaf scan in key
 // order), BlobSupport, TemporalSupport, Concurrent (mutex-guarded).
-// NOT CrashDurable (WAL deferred to Phase 5).
+// CrashDurable (WAL implemented for crash recovery).
 //
 // Persistence format (metadata page, page 1):
 //   [4 bytes LE: table_count]
@@ -68,6 +68,7 @@ public:
 
     std::uint32_t capabilities() const override {
         return static_cast<std::uint32_t>(StorageCapability::Durable)
+             | static_cast<std::uint32_t>(StorageCapability::CrashDurable)
              | static_cast<std::uint32_t>(StorageCapability::RandomAccess)
              | static_cast<std::uint32_t>(StorageCapability::OrderedScan)
              | static_cast<std::uint32_t>(StorageCapability::BlobSupport)

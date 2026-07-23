@@ -135,14 +135,48 @@ private:
                 break;
             }
             case CommandType::Update: {
-                // Spec §5.4: UPDATE is a stub; mark NotSupported. The storage
-                // engine CONTRACT supports put(); the orchestrator deliberately
-                // defers the scan+mutate walk.
-                error_opt = DbError::notSupported("UPDATE is stubbed in v0.1");
+                if (!cmd.where) { error_opt = DbError::internal("Update requires WHERE"); break; }
+                if (!cmd.values) { error_opt = DbError::internal("Update requires values"); break; }
+                std::vector<Value> keysToUpdate;
+                storage_.scan(txn, cmd.table, [&](const Tuple& row) {
+                    if (cmd.where->evaluate(row)) {
+                        auto pkOpt = row.maybeGet("_id");
+                        if (pkOpt) keysToUpdate.push_back(*pkOpt);
+                    }
+                });
+                bool any = false;
+                ResultSet rs;
+                for (const auto& k : keysToUpdate) {
+                    Tuple row = *cmd.values;
+                    row.set("_id", k);
+                    auto err = storage_.put(txn, cmd.table, k, row);
+                    if (!err.isSentinel()) { error_opt = err; break; }
+                    any = true;
+                }
+                if (!error_opt && !any) error_opt = DbError::notFound("no matching rows to update");
+                else if (!error_opt) rs = ResultSet(true, {});
+                result_opt = std::move(rs);
                 break;
             }
             case CommandType::Delete: {
-                error_opt = DbError::notSupported("DELETE is stubbed in v0.1");
+                if (!cmd.where) { error_opt = DbError::internal("Delete requires WHERE"); break; }
+                std::vector<Value> keysToDelete;
+                storage_.scan(txn, cmd.table, [&](const Tuple& row) {
+                    if (cmd.where->evaluate(row)) {
+                        auto pkOpt = row.maybeGet("_id");
+                        if (pkOpt) keysToDelete.push_back(*pkOpt);
+                    }
+                });
+                bool any = false;
+                ResultSet rs;
+                for (const auto& k : keysToDelete) {
+                    auto err = storage_.remove(txn, cmd.table, k);
+                    if (!err.isSentinel()) { error_opt = err; break; }
+                    any = true;
+                }
+                if (!error_opt && !any) error_opt = DbError::notFound("no matching rows to delete");
+                else if (!error_opt) rs = ResultSet(true, {});
+                result_opt = std::move(rs);
                 break;
             }
         }

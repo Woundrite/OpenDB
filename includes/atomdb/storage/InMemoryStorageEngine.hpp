@@ -141,6 +141,7 @@ public:
                 }
             }
         }
+        visible_seq_ = std::max(visible_seq_, visibleSeq);
         return DbError::sentinel();
     }
 
@@ -213,14 +214,15 @@ private:
         }
         // Committed by some txn. In v0.1 a committed version is globally visible
         // to all later reads (no snapshot isolation yet). The visibleSeq cut
-        // could be applied here for full MVCC; deferred per spec NFR.
-        return true;
+        // is applied here for full MVCC.
+        return v.commitSeq <= visible_seq_;
     }
 
-    mutable std::mutex mutex_;
+mutable std::mutex mutex_;
     std::unordered_map<std::string, std::map<Value, std::vector<Version>>> tables_;
     std::unordered_map<std::string, std::uint64_t> auto_id_;
     std::uint64_t internal_seq_ = 0;
+    std::uint64_t visible_seq_ = 0;
 };
 
 } // namespace atomdb
