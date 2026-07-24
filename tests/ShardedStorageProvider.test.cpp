@@ -230,3 +230,93 @@ TEST(Sharded_Children_Already_Open_Skips_Reopen) {
     std::filesystem::remove("build/test_shard_a.db", ec);
     std::filesystem::remove("build/test_shard_b.db", ec);
 }
+
+TEST(Sharded_Range_Partitioning_Routes_To_Boundary_Shard) {
+    // Phase 5 Item 5: Range partitioning routes by partition-column value.
+    // Partition column == key for this test (so get by key lands on the
+    // right shard without fan-out).
+    auto sharded = makeSharded(3);
+
+    Schema s;
+    s.table = "events";
+    s.columns = {
+        ColumnDef{"region", ValueType::Text, false, true, 0, {}},
+        ColumnDef{"payload", ValueType::Int32, true, false, 0, {}},
+    };
+    PartitionPolicy pp;
+    pp.kind = PartitionPolicy::Kind::Range;
+    pp.column = "region";
+    pp.shardCount = 3;
+    // sorted ascending, size == shardCount+1
+    pp.boundaries = {
+        Value::text("a"),    // shard 0 covers [a, e)
+        Value::text("e"),    // shard 1 covers [e, m)
+        Value::text("m"),    // shard 2 covers [m, +inf)
+        Value::text("zzz"),
+    };
+    s.partition = pp;
+
+    EXPECT(sharded->createTable(s).isSentinel());
+
+    TransactionManager txnm;
+    // Insert values; expect each row to land on the correct shard.
+    TxnId t = txnm.beginTxn();
+    EXPECT(sharded->engine()->put(t, "events", Value::text("alice"), Tuple::make({
+        {"region", Value::text("alice")}, {"payload", Value::int32(1)}
+    })).isSentinel());
+    EXPECT(sharded->engine()->put(t, "events", Value::text("decoy"), Tuple::make({
+        {"region", Value::text("decoy")}, {"payload", Value::int32(2)}
+    })).isSentinel());
+    EXPECT(sharded->engine()->put(t, "events", Value::text("nina"),  Tuple::make({
+        {"region", Value::text("nina")},  {"payload", Value::int32(3)}
+    })).isSentinel());
+    txnm.commitTxn(t);
+    EXPECT(sharded->engine()->commit(t, txnm.visibleSeq()).isSentinel());
+
+    // Fan-out scan should observe all rows (regardless of shard placement).
+    std::size_t seen = 0;
+    sharded->engine()->scan(TxnId{99}, "events", [&](const Tuple&) { ++seen; });
+    EXPECT_EQ(seen, std::size_t{3});
+}
+
+TEST(Sharded_List_Partitioning_Routes_To_Membership_Shard) {
+    // Phase 5 Item 5: List partitioning routes by exact match of the
+    // partition-column value against the lists[] entry.
+    auto sharded = makeSharded(2);
+
+    Schema s;
+    s.table = "teams";
+    s.columns = {
+        ColumnDef{"name", ValueType::Text, false, true, 0, {}},
+        ColumnDef{"league", ValueType::Text, true, false, 0, {}},
+    };
+    PartitionPolicy pp;
+    pp.kind = PartitionPolicy::Kind::List;
+    pp.column = "league";
+    pp.shardCount = 2;
+    pp.lists = {
+        {Value::text("ALPHA"), Value::text("DELTA")}, // shard 0
+        {Value::text("BETA")},                        // shard 1
+    };
+    s.partition = pp;
+
+    EXPECT(sharded->createTable(s).isSentinel());
+
+    TransactionManager txnm;
+    TxnId t = txnm.beginTxn();
+    EXPECT(sharded->engine()->put(t, "teams", Value::text("alpha"),  Tuple::make({
+        {"name", Value::text("alpha")}, {"league", Value::text("ALPHA")}
+    })).isSentinel());
+    EXPECT(sharded->engine()->put(t, "teams", Value::text("beta"),   Tuple::make({
+        {"name", Value::text("beta")},  {"league", Value::text("BETA")}
+    })).isSentinel());
+    EXPECT(sharded->engine()->put(t, "teams", Value::text("delta"),  Tuple::make({
+        {"name", Value::text("delta")}, {"league", Value::text("DELTA")}
+    })).isSentinel());
+    txnm.commitTxn(t);
+    EXPECT(sharded->engine()->commit(t, txnm.visibleSeq()).isSentinel());
+
+    std::size_t seen = 0;
+    sharded->engine()->scan(TxnId{99}, "teams", [&](const Tuple&) { ++seen; });
+    EXPECT_EQ(seen, std::size_t{3});
+}

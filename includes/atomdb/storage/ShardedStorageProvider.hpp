@@ -137,6 +137,12 @@ public:
             auto r = s->createTable(schema);
             if (!r.isSentinel()) return r;
         }
+        // ponytail: install the partition policy on the engine so Range/List
+        // routing uses the policy, and Hash routes by partition column when
+        // it's in the row.
+        if (schema.partition) {
+            engine_->installPartitionPolicy(schema.table, *schema.partition);
+        }
         // Cache schema locally
         {
             const std::lock_guard<std::mutex> lk(schema_mu_);
@@ -155,6 +161,7 @@ public:
             const std::lock_guard<std::mutex> lk(schema_mu_);
             schemas_.erase(name);
         }
+        engine_->clearPartitionPolicy(name);
         return DbError::sentinel();
     }
 
