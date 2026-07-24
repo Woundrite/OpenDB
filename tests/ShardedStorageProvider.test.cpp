@@ -1,11 +1,13 @@
 #include "atomdb/storage/ShardedStorageProvider.hpp"
 #include "atomdb/storage/InMemoryStorageProvider.hpp"
+#include "atomdb/storage/LocalFileStorageProvider.hpp"
 #include "atomdb/core/TransactionManager.hpp"
 #include "atomdb/types/Value.hpp"
 #include "atomdb/types/Schema.hpp"
 #include "../tests/test_framework.hpp"
 #include <vector>
 #include <memory>
+#include <filesystem>
 
 using namespace atomdb;
 
@@ -194,4 +196,37 @@ TEST(Sharded_Drop_Table_All_Shards) {
     EXPECT(sharded->tables().size() == 1);
     EXPECT(sharded->dropTable("t").isSentinel());
     EXPECT(sharded->tables().empty());
+}
+TEST(Sharded_Children_Already_Open_Skips_Reopen) {
+    // Phase 5 Item 9: ShardedStorageProvider must NOT clobber per-shard URIs
+    // by re-calling open() on every child with the parent URI. Construct with
+    // children_already_open=true and verify the parent open() leaves children
+    // untouched on their existing URIs (using LocalFileStorageProvider backed
+    // by separate files; the parent's open("file://shared") must NOT touch
+    // either file).
+    std::error_code ec;
+    std::filesystem::remove("build/test_shard_a.db", ec);
+    std::filesystem::remove("build/test_shard_b.db", ec);
+
+    std::vector<std::unique_ptr<IStorageProvider>> v;
+    v.push_back(std::make_unique<LocalFileStorageProvider>());
+    v.push_back(std::make_unique<LocalFileStorageProvider>());
+
+    EXPECT(v[0]->open("file://build/test_shard_a.db").isSentinel());
+    EXPECT(v[1]->open("file://build/test_shard_b.db").isSentinel());
+
+    auto sharded = std::make_unique<ShardedStorageProvider>(std::move(v), true);
+
+    // children_already_open=true -> provider open() should be a no-op and not
+    // re-open children with the parent URI.
+    EXPECT(sharded->isOpen());
+    EXPECT(sharded->open("file://INJECT-IF-NO-OP-FAILED").isSentinel());
+    EXPECT(sharded->isOpen());
+    EXPECT_EQ(sharded->shardCount(), std::size_t{2});
+
+    EXPECT(sharded->close().isSentinel());
+    EXPECT(!sharded->isOpen());
+
+    std::filesystem::remove("build/test_shard_a.db", ec);
+    std::filesystem::remove("build/test_shard_b.db", ec);
 }

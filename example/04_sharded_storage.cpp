@@ -81,7 +81,7 @@ int main() {
         shards.push_back(makeShard("file://" + path, i));
     }
 
-    auto sharded = std::make_unique<ShardedStorageProvider>(std::move(shards));
+    auto sharded = std::make_unique<ShardedStorageProvider>(std::move(shards), true /* children_already_open */);
 
     // Schema: hash-partitioned on `id` with shardCount == kShards.
     Schema users = {
@@ -99,11 +99,9 @@ int main() {
         },
     };
 
-    // The shards are already open from makeShard(). The sharded provider's
-    // open() blindly re-opens each child with the supplied URI; since the
-    // children are already open we pass an empty URI and let any
-    // per-provider no-op semantics apply. (Children of LocalFile all share
-    // the same "file://" scheme, so re-opening them by URI works trivially.)
+    // The shards are already open from makeShard() with per-shard URIs
+    // (e.g. file://example_04_shard_0.atoms, ...). Pass children_already_open=true
+    // so the provider's open() is a no-op and doesn't clobber the URIs.
     if (auto err = sharded->open(""); !err.isSentinel()) {
         std::cerr << "sharded open: " << err.toString() << "\n";
         return 1;

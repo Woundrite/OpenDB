@@ -32,13 +32,22 @@ namespace atomdb {
 // (mutex-guarded) for fast describeTable/tables without round-tripping.
 class ShardedStorageProvider : public IStorageProvider {
 public:
-    explicit ShardedStorageProvider(std::vector<std::unique_ptr<IStorageProvider>> shards) {
+    explicit ShardedStorageProvider(std::vector<std::unique_ptr<IStorageProvider>> shards,
+                                    bool children_already_open = false) {
         std::vector<IStorageEngine*> engines;
         for (auto& s : shards) {
             engines.push_back(s->engine());
             shards_.push_back(std::move(s));
         }
         engine_ = std::make_unique<ShardedStorageEngine>(std::move(engines));
+        // ponytail: callers that pre-open children (e.g., each shard on its own
+        // file path) want open() to be a no-op — re-opening with the parent
+        // URI would clobber the per-shard URIs. Default keeps the legacy
+        // "reopen-all-with-same-URI" behavior.
+        children_already_open_ = children_already_open;
+        if (children_already_open) {
+            opened_ = true;
+        }
     }
 
     ~ShardedStorageProvider() override = default;
@@ -63,6 +72,12 @@ public:
 
     DbError open(const std::string& uri) override {
         if (shards_.empty()) return DbError::internal("no shards configured");
+        // ponytail: children_already_open_ skips per-child re-opens so per-shard
+        // URIs (e.g. shard0.db, shard1.db) aren't overwritten by the parent URI.
+        if (children_already_open_) {
+            opened_ = true;
+            return DbError::sentinel();
+        }
         // Open all children. Roll back on any failure.
         std::size_t openedCount = 0;
         for (auto& s : shards_) {
@@ -169,6 +184,7 @@ private:
     mutable std::mutex schema_mu_;
     std::unordered_map<std::string, Schema> schemas_;
     bool opened_ = false;
+    bool children_already_open_ = false;
 };
 
 } // namespace atomdb
