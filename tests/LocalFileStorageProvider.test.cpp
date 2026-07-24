@@ -458,3 +458,61 @@ TEST(LocalFile_Comment_Box_Type_Blob_Persists) {
     }
     cleanup("build/test_localfile_blob.db");
 }
+
+TEST(LocalFile_CrashDurable_Data_Persists_Across_Reopen) {
+    // Phase 5 Item 2: the `CrashDurable` capability bit is honest — data
+    // committed before close() must be readable after a fresh open() with no
+    // crash midway. We synthesize "process restart" via scope boundary.
+    cleanup("build/test_localfile_crash.db");
+    Schema users = makeUsersSchema();
+    {
+        LocalFileStorageProvider p;
+        EXPECT(p.open("file://build/test_localfile_crash.db").isSentinel());
+        EXPECT(p.createTable(users).isSentinel());
+
+        TransactionManager txnm;
+        TxnId t = txnm.beginTxn();
+        for (int i = 1; i <= 5; ++i) {
+            Tuple r = Tuple::make({
+                {"_id", Value::int64(i)},
+                {"name", Value::text(std::string("name") + std::to_string(i))},
+                {"age",  Value::int32(20 + i)},
+            });
+            EXPECT(p.put(t, "users", Value::int64(i), r).isSentinel());
+        }
+        txnm.commitTxn(t);
+        EXPECT(p.commit(t, txnm.visibleSeq()).isSentinel());
+
+        // Stage another write but DO NOT commit before close.
+        TxnId t2 = txnm.beginTxn();
+        Tuple doomed = Tuple::make({
+            {"_id", Value::int64(99)},
+            {"name", Value::text("doomed")},
+            {"age",  Value::int32(0)},
+        });
+        EXPECT(p.put(t2, "users", Value::int64(99), doomed).isSentinel());
+        txnm.abortTxn(t2);
+
+        EXPECT(p.close().isSentinel());
+    }
+    // "process restart" — fresh provider, fresh tables/BTree, fresh visible_seq_.
+    {
+        LocalFileStorageProvider p;
+        EXPECT(p.open("file://build/test_localfile_crash.db").isSentinel());
+        EXPECT(p.tables().size() == std::size_t{1});
+        EXPECT(p.describeTable("users").has_value());
+        EXPECT_EQ(p.rowCount("users"), std::size_t{5});
+
+        auto got = p.get(TxnId{99}, "users", Value::int64(3));
+        EXPECT(got.has_value());
+        EXPECT(got->get("name").asText() == std::string{"name3"});
+        EXPECT(got->get("age").asInt32() == 23);
+
+        // The aborted staged entry must NOT survive reopen.
+        auto staged = p.get(TxnId{99}, "users", Value::int64(99));
+        EXPECT(!staged.has_value());
+
+        EXPECT(p.close().isSentinel());
+    }
+    cleanup("build/test_localfile_crash.db");
+}

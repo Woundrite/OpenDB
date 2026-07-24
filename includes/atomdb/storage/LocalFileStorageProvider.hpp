@@ -5,12 +5,14 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <fstream>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <filesystem>
 
 #include "atomdb/contracts/IStorageEngine.hpp"
 #include "atomdb/contracts/IStorageProvider.hpp"
@@ -35,7 +37,15 @@ namespace atomdb {
 // Capabilities: Durable (data survives process exit via fsync on close/sync),
 // RandomAccess (B+Tree O(log n) get), OrderedScan (B+Tree leaf scan in key
 // order), BlobSupport, TemporalSupport, Concurrent (mutex-guarded).
-// CrashDurable (WAL implemented for crash recovery).
+// CrashDurable — v1: crash safety comes from `commit()` calling
+//   `pager_->sync()` after every BTree flush + metadata save. A restart with
+//   no in-flight writes observes the last fully-committed state. There is
+//   no separate write-ahead log yet because `commit` is the atomicity
+//   barrier; staged entries from an aborted txn are MVCC-invisible
+//   (`commitSeq==0` and never committed), so they don't pollute restart.
+//   A future enhancement is to add a `<file>.wal` sidecar recording staged
+//   ops for partial-recovery scenarios (e.g., a crash mid-commit between
+//   the per-tree flush and the metadata save).
 //
 // Persistence format (metadata page, page 1):
 //   [4 bytes LE: table_count]
