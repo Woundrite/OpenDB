@@ -118,3 +118,31 @@ TEST(Storage_Abort_Removes_Uncommitted_Staged) {
     EXPECT(!s.get(txnm.beginTxn(), "tbl", Value::integer(7)).has_value());
     EXPECT_EQ(s.rowCount("tbl"), std::size_t{0});
 }
+
+TEST(Storage_MVCC_VisibleSeq_Cutoff_Applies_To_Commit) {
+    // Phase 5 Item 11: After each commit, internal visible_seq_ must
+    // monotonically advance; subsequent reads observe the latest committed
+    // version (not staged). Staged versions remain invisible to other txns.
+    InMemoryStorageEngine s;
+    TransactionManager txnm;
+
+    TxnId owner = txnm.beginTxn();
+    EXPECT(s.put(owner, "tbl", Value::int64(1),
+                Tuple::make({{"_id", Value::int64(1)}, {"v", Value::int32(100)}})).isSentinel());
+    // Other txn reads while staged — must NOT see own's staged write.
+    TxnId other = txnm.beginTxn();
+    auto got = s.get(other, "tbl", Value::int64(1));
+    EXPECT(!got.has_value());
+    // Owner sees its own staged write (read-your-writes).
+    auto owner_read = s.get(owner, "tbl", Value::int64(1));
+    EXPECT(owner_read.has_value());
+    EXPECT(owner_read->get("v").asInt32() == 100);
+
+    // Commit and verify other txn now sees the committed version.
+    txnm.commitTxn(owner);
+    std::uint64_t seq = txnm.visibleSeq();
+    EXPECT(s.commit(owner, seq).isSentinel());
+    auto after = s.get(other, "tbl", Value::int64(1));
+    EXPECT(after.has_value());
+    EXPECT(after->get("v").asInt32() == 100);
+}
