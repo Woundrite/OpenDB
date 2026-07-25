@@ -473,7 +473,63 @@ std::optional<Command> SqlParser::parseSelect() {
         where = Predicate(std::move(pred));
     }
 
-    return Command(CommandType::Select, *table, std::move(where), std::nullopt, projections);
+    // ponytail: ORDER BY col [ASC|DESC] [, col ...]  → OrderBySpec list
+    std::vector<OrderBySpec> orderBy;
+    if (consumeKeyword("ORDER")) {
+        if (!consumeKeyword("BY")) {
+            error_ = "expected BY after ORDER";
+            return std::nullopt;
+        }
+        while (true) {
+            auto col = consumeIdentifier();
+            if (!col) { error_ = "expected column name in ORDER BY"; return std::nullopt; }
+            SortDirection dir = SortDirection::Asc;
+            if (consumeKeyword("ASC")) {
+                dir = SortDirection::Asc;
+            } else if (consumeKeyword("DESC")) {
+                dir = SortDirection::Desc;
+            }
+            orderBy.push_back({*col, dir});
+            if (consumeSymbol(",")) continue;
+            break;
+        }
+    }
+
+    std::optional<std::size_t> limitVal, offsetVal;
+    if (consumeKeyword("LIMIT")) {
+        auto v = consumeValueLiteral();
+        if (!v || (!v->isInt32() && !v->isInt64())) {
+            error_ = "expected integer after LIMIT";
+            return std::nullopt;
+        }
+        limitVal = v->isInt64() ? static_cast<std::size_t>(v->asInt64())
+                                : static_cast<std::size_t>(v->asInt32());
+        if (consumeKeyword("OFFSET")) {
+            auto off = consumeValueLiteral();
+            if (!off || (!off->isInt32() && !off->isInt64())) {
+                error_ = "expected integer after OFFSET";
+                return std::nullopt;
+            }
+            offsetVal = off->isInt64() ? static_cast<std::size_t>(off->asInt64())
+                                       : static_cast<std::size_t>(off->asInt32());
+        }
+    } else if (consumeKeyword("OFFSET")) {
+        auto off = consumeValueLiteral();
+        if (!off || (!off->isInt32() && !off->isInt64())) {
+            error_ = "expected integer after OFFSET";
+            return std::nullopt;
+        }
+        offsetVal = off->isInt64() ? static_cast<std::size_t>(off->asInt64())
+                                   : static_cast<std::size_t>(off->asInt32());
+    }
+
+    Command cmd(CommandType::Select, *table,
+                std::move(where), std::nullopt,
+                std::move(projections));
+    if (!orderBy.empty()) cmd.withOrderBy(std::move(orderBy));
+    if (limitVal)  cmd.withLimit(*limitVal);
+    if (offsetVal) cmd.withOffset(*offsetVal);
+    return cmd;
 }
 
 std::optional<Command> SqlParser::parseUpdate() {

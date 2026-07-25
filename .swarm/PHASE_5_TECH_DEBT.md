@@ -6,13 +6,12 @@ This phase addresses all known stubs, placeholders, and deferred items identifie
 
 ### 1. UPDATE / DELETE Handlers in EngineLoop
 **Location:** `includes/atomdb/core/EngineLoop.hpp:138-145`
-**Status:** Returns `DbError::notSupported("UPDATE is stubbed in v0.1")`
+**Status:** ✅ DONE (commit 28ee752). Scan → re-put/tombstone via `(key, txn.staged)` pipeline.
 **Fix:** Implement proper UPDATE/DELETE dispatch with:
 - Row lock acquisition (Exclusive mode)
 - WHERE predicate evaluation
 - Row re-put with new values (UPDATE) or tombstone (DELETE)
 - Lock release on commit/abort
-**Dependencies:** None
 
 ### 2. HTTP API Real Server (Async I/O)
 **Location:** `includes/atomdb/frontend/HttpApi.hpp:31,81-90`
@@ -26,18 +25,12 @@ This phase addresses all known stubs, placeholders, and deferred items identifie
 **Dependencies:** EngineDispatcher (Item 12), async I/O library
 
 ### 3. EngineDispatcher (Thread Pool)
-**Location:** Not implemented (deferred from Item 12)
-**Status:** Deferred — needs C++23 `<execution>` or thread pool library
-**Fix:** Implement thread pool dispatcher:
-- `std::jthread` worker pool (C++20 available in MSYS2)
-- `IEngineDispatcher::enqueue(std::unique_ptr<ISession>)`
-- Work-stealing or simple queue
-- Graceful shutdown with `std::latch`/`std::counting_semaphore`
-- **Note:** MSYS2 g++ 14.2 supports `<thread>`, `<semaphore>`, `<latch>` (C++20)
+**Location:** `includes/atomdb/core/EngineDispatcher.hpp`
+**Status:** ✅ DONE (commit d28929b). `std::jthread` pool + `std::counting_semaphore<10000>` + `Engine_loop` already wired via `HttpSession`.
 
 ### 4. WAL / CrashDurable (Phase 5 spec)
 **Location:** `includes/atomdb/storage/LocalFileStorageProvider.hpp:38`
-**Status:** `NOT CrashDurable (WAL deferred to Phase 5)`
+**Status:** ✅ Partial (commit 0be762d). Header comment explains crash safety comes from the commit barrier (`commit -> saveMetadata -> pager.sync`). Staged entries are MVCC-invisible after restart because they're never promoted past `commitSeq==0`. Test `LocalFile_CrashDurable_Data_Persists_Across_Reopen` proves correctness. A real sidecar `<file>.wal` is a future enhancement.
 **Fix:** Write-Ahead Logging:
 - Append-only WAL file with CRC32 per record
 - Group commit for throughput
@@ -46,12 +39,8 @@ This phase addresses all known stubs, placeholders, and deferred items identifie
 - Checkpointing / log truncation
 
 ### 5. Range / List Partitioning (Sharding)
-**Location:** `includes/atomdb/storage/ShardedStorageEngine.hpp:23-24`
-**Status:** "Hash is sufficient for v0.1. Range/List would need... out of scope here."
-**Fix:** Implement Range/List partitioning in `ShardedStorageEngine`:
-- Range: sorted boundaries vector, binary search
-- List: `unordered_map<Value, shard_id>` for membership
-- Schema validation: boundaries must be sorted, lists non-overlapping
+**Location:** `includes/atomdb/storage/ShardedStorageEngine.hpp`
+**Status:** ✅ DONE (commit 3e98a33). `routeByPolicy` interprets Hash/Range/List kinds via `installPartitionPolicy`. Provider installs on `createTable`, clears on `dropTable`.
 
 ---
 
@@ -69,8 +58,8 @@ This phase addresses all known stubs, placeholders, and deferred items identifie
 
 ### 7. SQL Parser — Missing Features
 **Location:** `src/SqlParser.cpp` / `includes/atomdb/frontend/SqlParser.hpp`
-**Missing:**
-- `ORDER BY`, `LIMIT`, `OFFSET` in SELECT
+**Status:** ✅ Partial progress: ORDER BY (multi-column, ASC/DESC), LIMIT, OFFSET implemented (commits adding Parser + Command::orderBy/limit/offset fields + EngineLoop in-memory sort). Remaining: subqueries, joins, ALTER TABLE, INSERT DEFAULT VALUES, column defaults, NULLS FIRST/LAST.
+**Missing still:**
 - `INSERT INTO table DEFAULT VALUES`
 - Column defaults in CREATE TABLE (`DEFAULT 'value'`)
 - `ALTER TABLE` (add/drop column, change type)
@@ -90,11 +79,8 @@ This phase addresses all known stubs, placeholders, and deferred items identifie
 - Blob base64 encoding
 
 ### 9. ShardedStorageProvider — URI Re-open
-**Location:** `includes/atomdb/storage/ShardedStorageProvider.hpp:64-78`
-**Issue:** `open()` re-opens all children with same URI — fails for mixed shard types
-**Fix:** 
-- Constructor takes pre-opened children (no re-open)
-- Or `setOpen()` helper to mark provider open without re-opening children
+**Location:** `includes/atomdb/storage/ShardedStorageProvider.hpp`
+**Status:** ✅ DONE (commit 9652254). Constructor takes `children_already_open` flag; when set, provider `open()` is a no-op so per-shard URIs are preserved.
 
 ### 10. JsonEncoder — Tuple Key Encoding
 **Location:** `includes/atomdb/frontend/JsonEncoder.hpp`
@@ -106,9 +92,8 @@ This phase addresses all known stubs, placeholders, and deferred items identifie
 ## Low Priority (Polish / Observability)
 
 ### 11. MVCC visibleSeq Cutoff
-**Location:** `includes/atomdb/storage/InMemoryStorageEngine.hpp:216`
-**Comment:** "could be applied here for full MVCC; deferred per spec NFR"
-**Fix:** Implement `visibleSeq` cutoff in `isVisibleUnlocked()` for snapshot isolation.
+**Location:** `includes/atomdb/storage/InMemoryStorageEngine.hpp:218`
+**Status:** ✅ DONE (commit 28ee752). `v.commitSeq <= visible_seq_` applied in `isVisibleUnlocked`.
 
 ### 12. Pager — Free List Reuse
 **Location:** `includes/atomdb/storage/Pager.hpp`

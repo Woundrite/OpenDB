@@ -29,6 +29,16 @@ enum class CommandType { Select, Insert, Update, Delete };
 //   - Delete: MUST set where, MUST NOT set values.
 //   - Select: optional where (filter), optional projections (column subset).
 //   - txnId: may be set (explicit txn) or nullopt (auto-commit).
+// Sort direction for ORDER BY clause.
+enum class SortDirection { Asc, Desc };
+
+// Order-by spec: pair of (column, direction). Order is meaningful — first
+// entry sorts first, then ties on second, etc.
+struct OrderBySpec {
+    std::string column;
+    SortDirection direction = SortDirection::Asc;
+};
+
 class Command {
 public:
     CommandType type;
@@ -36,6 +46,9 @@ public:
     std::optional<Predicate> where;
     std::optional<Tuple> values;
     std::vector<std::string> projections;
+    std::vector<OrderBySpec> orderBy;
+    std::optional<std::size_t> limit;
+    std::optional<std::size_t> offset;
     std::optional<TxnId> txnId;
 
     // Construct in-place. Move-only-friendly — pass rvalue Tuple/Predicate.
@@ -53,6 +66,14 @@ public:
           txnId(txn) {
         validate();
     }
+
+    // ponytail: ORDER BY/LIMIT/OFFSET are set after construction rather
+    // than added to the ctor param list — keeps existing 4/6-arg call
+    // sites compiling unchanged while still letting SqlParser populate
+    // them atomically via this setter chain.
+    Command& withOrderBy(std::vector<OrderBySpec> v) { orderBy = std::move(v); return *this; }
+    Command& withLimit(std::size_t v) { limit = v; return *this; }
+    Command& withOffset(std::size_t v) { offset = v; return *this; }
 
     std::string toString() const {
         const char* type_str = "?";
@@ -74,6 +95,17 @@ public:
             }
             os << "]";
         }
+        if (!orderBy.empty()) {
+            os << " orderBy=[";
+            for (std::size_t i = 0; i < orderBy.size(); ++i) {
+                if (i) os << ',';
+                os << orderBy[i].column
+                   << (orderBy[i].direction == SortDirection::Asc ? ":asc" : ":desc");
+            }
+            os << "]";
+        }
+        if (limit)  os << " limit=" << *limit;
+        if (offset) os << " offset=" << *offset;
         if (txnId)   os << " txn=" << txnId->toString();
         return os.str();
     }

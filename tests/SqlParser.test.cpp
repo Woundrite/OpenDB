@@ -352,3 +352,39 @@ TEST(SqlParser_WhereOrExpr) {
         }
     }
 }
+TEST(SqlParser_OrderBy_Asc_Populates_Command) {
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM u ORDER BY name ASC");
+    EXPECT(s.has_value());
+    if (s.has_value()) {
+        auto* cmd = std::get_if<Command>(&*s);
+        EXPECT(cmd != nullptr);
+        EXPECT_EQ(cmd->orderBy.size(), std::size_t{1});
+        EXPECT(cmd->orderBy[0].column == "name");
+        EXPECT(cmd->orderBy[0].direction == SortDirection::Asc);
+    }
+}
+
+TEST(SqlParser_OrderBy_Multi_Columns) {
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM u ORDER BY age DESC, name ASC");
+    EXPECT(s.has_value());
+    if (s.has_value()) {
+        auto* cmd = std::get_if<Command>(&*s);
+        EXPECT_EQ(cmd->orderBy.size(), std::size_t{2});
+        EXPECT(cmd->orderBy[0].column == "age");
+        EXPECT(cmd->orderBy[0].direction == SortDirection::Desc);
+        EXPECT(cmd->orderBy[1].column == "name");
+        EXPECT(cmd->orderBy[1].direction == SortDirection::Asc);
+    }
+}
+
+TEST(SqlParser_Limit_And_Offset_Populate_Command) {
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM u LIMIT 10 OFFSET 5");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    EXPECT(cmd != nullptr);
+    EXPECT(cmd->limit.has_value()  && *cmd->limit  == std::size_t{10});
+    EXPECT(cmd->offset.has_value() && *cmd->offset == std::size_t{5});
+}

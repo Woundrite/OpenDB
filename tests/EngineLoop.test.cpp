@@ -162,3 +162,58 @@ TEST(Repl_Auto_Hydrates_Present_With_No_Rows_Prints_OK) {
     repl.present(rs);
     EXPECT(out.str() == "[OK]\n");
 }
+
+TEST(Engine_Loop_OrderBy_Sorts_Rows_Ascending) {
+    TransactionManager txnm;
+    LockManager        lkm;
+    DeadlockDetector   dd(lkm);
+    InMemoryStorageEngine storage;
+    ScriptedSource       src;
+
+    src.cmds.push_back(Command(CommandType::Insert, "u",
+        std::nullopt,
+        Tuple::make({{"name", Value::text("charlie")}, {"_id", Value::integer(1)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u",
+        std::nullopt,
+        Tuple::make({{"name", Value::text("alpha")},   {"_id", Value::integer(2)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u",
+        std::nullopt,
+        Tuple::make({{"name", Value::text("bravo")},   {"_id", Value::integer(3)}})));
+
+    // Sort by name ASC.
+    src.cmds.push_back(Command(CommandType::Select, "u").withOrderBy(
+        {{"name", SortDirection::Asc}}));
+
+    EngineLoop engine(src, storage, txnm, lkm, dd);
+    engine.run();
+
+    EXPECT_EQ(src.presented_errors.size(), std::size_t{0});
+    EXPECT_EQ(src.presented_results.size(), std::size_t{3});
+    // Sorted ascending: alpha (id=2), bravo (id=3), charlie (id=1)
+    EXPECT(src.presented_results[0].find("_id=2") != std::string::npos);
+    EXPECT(src.presented_results[1].find("_id=3") != std::string::npos);
+    EXPECT(src.presented_results[2].find("_id=1") != std::string::npos);
+}
+
+TEST(Engine_Loop_Limit_Truncates_Rows) {
+    TransactionManager txnm;
+    LockManager        lkm;
+    DeadlockDetector   dd(lkm);
+    InMemoryStorageEngine storage;
+    ScriptedSource       src;
+
+    for (int i = 1; i <= 10; ++i) {
+        src.cmds.push_back(Command(CommandType::Insert, "u",
+            std::nullopt,
+            Tuple::make({{"_id", Value::int64(i)}, {"name", Value::text("u" + std::to_string(i))}})));
+    }
+    src.cmds.push_back(Command(CommandType::Select, "u").withLimit(3));
+
+    EngineLoop engine(src, storage, txnm, lkm, dd);
+    engine.run();
+
+    EXPECT_EQ(src.presented_results.size(), std::size_t{3});
+    // We emit each row separately; first three must be _id 1..3.
+    EXPECT(src.presented_results[0].find("_id=1") != std::string::npos);
+    EXPECT(src.presented_results[2].find("_id=3") != std::string::npos);
+}

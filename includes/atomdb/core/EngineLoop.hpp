@@ -1,8 +1,11 @@
 #ifndef ATOMDB_ENGINE_LOOP_HPP
 #define ATOMDB_ENGINE_LOOP_HPP
 
+#include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <optional>
+#include <vector>
 
 #include "atomdb/contracts/ICommandSource.hpp"
 #include "atomdb/contracts/IStorageEngine.hpp"
@@ -97,20 +100,60 @@ private:
             case CommandType::Select: {
                 ResultSet rs;
                 rs.success = true;
+
+                // Collect first: ORDER BY/LIMIT/OFFSET need the full filtered
+                // row set in memory before presentation.
+                std::vector<Tuple> matched;
                 storage_.scan(txn, cmd.table, [&](const Tuple& row) {
                     if (!cmd.where.has_value() || cmd.where->evaluate(row)) {
-                        if (cmd.projections.empty()) {
-                            rs.rows.push_back(row);
+                        if (cmd.projections.empty() ||
+                            (cmd.projections.size() == 1 && cmd.projections[0] == "*")) {
+                            matched.push_back(row);
                         } else {
                             Tuple projected;
                             for (const auto& pc : cmd.projections) {
                                 auto v = row.maybeGet(pc);
                                 if (v) projected.set(pc, std::move(*v));
                             }
-                            rs.rows.push_back(std::move(projected));
+                            matched.push_back(std::move(projected));
                         }
                     }
                 });
+
+                // ponytail: ORDER BY happens here, in-memory sort on the
+                // collected rows. Lets compare() resolve Nulls/Mixed numeric
+                // types consistently with the SQL semantics.
+                if (!cmd.orderBy.empty()) {
+                    std::vector<OrderBySpec> specs = cmd.orderBy;
+                    std::sort(matched.begin(), matched.end(),
+                              [&specs](const Tuple& a, const Tuple& b) {
+                                  for (const auto& s : specs) {
+                                      auto av = a.maybeGet(s.column);
+                                      auto bv = b.maybeGet(s.column);
+                                      if (!av && !bv) continue;
+                                      if (!av) return s.direction == SortDirection::Asc;
+                                      if (!bv) return s.direction != SortDirection::Asc;
+                                      auto cmp = av->compare(*bv);
+                                      if (cmp == std::strong_ordering::equal) continue;
+                                      if (s.direction == SortDirection::Asc) {
+                                          return cmp == std::strong_ordering::less;
+                                      }
+                                      return cmp == std::strong_ordering::greater;
+                                  }
+                                  return false;
+                              });
+                }
+
+                std::size_t start = cmd.offset.value_or(0);
+                std::size_t end   = matched.size();
+                if (cmd.limit.has_value()) {
+                    end = std::min(end, start + *cmd.limit);
+                }
+                if (start >= matched.size()) start = matched.size();
+                if (end < start) end = start;
+                for (std::size_t i = start; i < end; ++i) {
+                    rs.rows.push_back(std::move(matched[i]));
+                }
                 result_opt = std::move(rs);
                 break;
             }
