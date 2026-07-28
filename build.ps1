@@ -20,7 +20,7 @@ function Invoke-Build {
 
     Write-Host "[link] atomdb"
     $objs = Get-ChildItem -Path "$Root\build\src" -Filter "*.obj" | ForEach-Object { $_.FullName }
-    & g++ -Wall -Wextra -Wpedantic -Werror $objs -o "$Root\build\atomdb.exe" -pthread
+    & g++ -Wall -Wextra -Wpedantic -Werror $objs -o "$Root\build/atomdb.exe" -pthread -lws2_32
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -67,10 +67,10 @@ function Invoke-Tests {
     $testObjs = Get-ChildItem -Path "$Root\build\tests" -Filter "*.obj" | ForEach-Object { $_.FullName }
     $objs = $testObjs + $srcObjs
     Write-Host "[link] test_runner"
-    & g++ -Wall -Wextra -Wpedantic -Werror $objs -o "$Root\build\test_runner.exe" -pthread
+    & g++ -Wall -Wextra -Wpedantic -Werror $objs -o "$Root\build/test_runner.exe" -pthread -lws2_32
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    & "$Root\build\test_runner.exe"
+    & "$Root\build/test_runner.exe"
 }
 
 function Invoke-Smoke {
