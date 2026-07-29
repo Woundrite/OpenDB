@@ -13,8 +13,8 @@ TEST(Caching_Get_Miss_Hits_Inner_Then_Caches) {
     InMemoryStorageProvider inner;
     inner.open("in-memory://");
     Schema s; s.table = "users";
-    s.columns.push_back({"_id", ValueType::Int64, false, true, 0, {}});
-    s.columns.push_back({"name", ValueType::Text, false, false, 0, {}});
+    s.columns.push_back({"_id", ValueType::Int64, false, true, 0, {}, std::nullopt});
+    s.columns.push_back({"name", ValueType::Text, false, false, 0, {}, std::nullopt});
     EXPECT(inner.createTable(s).isSentinel());
 
     auto* base = inner.engine();
@@ -41,8 +41,8 @@ TEST(Caching_Put_Invalidates_Entry) {
     InMemoryStorageProvider inner;
     inner.open("in-memory://");
     Schema s; s.table = "users";
-    s.columns.push_back({"_id", ValueType::Int64, false, true, 0, {}});
-    s.columns.push_back({"name", ValueType::Text, false, false, 0, {}});
+    s.columns.push_back({"_id", ValueType::Int64, false, true, 0, {}, std::nullopt});
+    s.columns.push_back({"name", ValueType::Text, false, false, 0, {}, std::nullopt});
     EXPECT(inner.createTable(s).isSentinel());
 
     auto* base = inner.engine();
@@ -81,8 +81,8 @@ TEST(Caching_Scan_Forwarded_Through_Inner) {
     InMemoryStorageProvider inner;
     inner.open("in-memory://");
     Schema s; s.table = "users";
-    s.columns.push_back({"_id", ValueType::Int64, false, true, 0, {}});
-    s.columns.push_back({"name", ValueType::Text, false, false, 0, {}});
+    s.columns.push_back({"_id", ValueType::Int64, false, true, 0, {}, std::nullopt});
+    s.columns.push_back({"name", ValueType::Text, false, false, 0, {}, std::nullopt});
     EXPECT(inner.createTable(s).isSentinel());
 
     auto* base = inner.engine();

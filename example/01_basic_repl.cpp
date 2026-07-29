@@ -57,9 +57,9 @@ int main() {
     storage->createTable({
         "users",
         {
-            ColumnDef{"id",   ValueType::Int64, false, true,  0, {}},
-            ColumnDef{"name", ValueType::Text,  true,  false, 0, {}},
-            ColumnDef{"age",  ValueType::Int64, true,  false, 0, {}},
+            ColumnDef{"id",   ValueType::Int64, false, true,  0, {}, std::nullopt},
+            ColumnDef{"name", ValueType::Text,  true,  false, 0, {}, std::nullopt},
+            ColumnDef{"age",  ValueType::Int64, true,  false, 0, {}, std::nullopt},
         },
         std::nullopt,
     });

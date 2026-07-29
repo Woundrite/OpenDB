@@ -25,8 +25,8 @@ TEST(HttpApi_BasicQuery) {
     Schema schema;
     schema.table = "t";
     schema.columns = {
-        ColumnDef{"id", ValueType::Int64, false, true, 0, {}},
-        ColumnDef{"name", ValueType::Text, true, false, 0, {}},
+        ColumnDef{"id", ValueType::Int64, false, true, 0, {}, std::nullopt},
+        ColumnDef{"name", ValueType::Text, true, false, 0, {}, std::nullopt},
     };
     EXPECT(storage->createTable(schema).isSentinel());
     
@@ -61,8 +61,8 @@ TEST(HttpApi_Insert_Select) {
     Schema schema;
     schema.table = "items";
     schema.columns = {
-        ColumnDef{"id", ValueType::Int64, false, true, 0, {}},
-        ColumnDef{"val", ValueType::Int64, true, false, 0, {}},
+        ColumnDef{"id", ValueType::Int64, false, true, 0, {}, std::nullopt},
+        ColumnDef{"val", ValueType::Int64, true, false, 0, {}, std::nullopt},
     };
     EXPECT(storage->createTable(schema).isSentinel());
     
@@ -93,7 +93,7 @@ TEST(HttpApi_DropTable) {
     
     Schema schema;
     schema.table = "to_drop";
-    schema.columns = {ColumnDef{"id", ValueType::Int64, false, true, 0, {}}};
+    schema.columns = {ColumnDef{"id", ValueType::Int64, false, true, 0, {}, std::nullopt}};
     EXPECT(storage->createTable(schema).isSentinel());
     EXPECT(storage->tables().size() == 1);
     
@@ -134,19 +134,73 @@ TEST(HttpApi_ParseJsonRequest) {
         EXPECT(req->type == "query");
         EXPECT(req->sql == "SELECT 1");
     }
-    
+
     req = parseJsonRequest("{\"type\":\"begin\"}");
     EXPECT(req.has_value());
     if (req) EXPECT(req->type == "begin");
-    
+
     req = parseJsonRequest("{\"type\":\"commit\",\"txnId\":42}");
     EXPECT(req.has_value());
     if (req) {
         EXPECT(req->type == "commit");
         EXPECT(req->txnId == 42);
     }
-    
+
     // Invalid
     req = parseJsonRequest("{not valid json}");
     EXPECT(!req.has_value());
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 Item 7: HTTP API materializes column-level DEFAULTs on INSERT
+// ---------------------------------------------------------------------------
+
+TEST(HttpApi_Insert_DefaultValues_Materializes_Defaults) {
+    auto storage = std::make_unique<InMemoryStorageProvider>();
+    storage->open("in-memory://");
+
+    Schema schema;
+    schema.table = "users";
+    ColumnDef idCol{"id", ValueType::Int64, false, true, 0, {}, std::nullopt};
+    ColumnDef nameCol{"name", ValueType::Text, true, false, 0, {}, Value::text("anon")};
+    ColumnDef ageCol{"age", ValueType::Int32, true, false, 0, {}, Value::int32(0)};
+    schema.columns = {idCol, nameCol, ageCol};
+    EXPECT(storage->createTable(schema).isSentinel());
+
+    MockDispatcher dispatcher;
+    HttpApiAccessPlugin plugin;
+    plugin.open("in-memory://", storage.get(), &dispatcher);
+
+    // INSERT DEFAULT VALUES — front-end fills name=anon, age=0 from the schema.
+    std::string req = "{\"type\":\"query\",\"sql\":\"INSERT INTO users DEFAULT VALUES\"}";
+    std::string resp = plugin.handleRequest(req);
+    EXPECT(resp.find("\"success\":true") != std::string::npos);
+
+    // SELECT and verify materialized defaults appear.
+    req = "{\"type\":\"query\",\"sql\":\"SELECT * FROM users\"}";
+    resp = plugin.handleRequest(req);
+    EXPECT(resp.find("\"name\":\"anon\"") != std::string::npos);
+    EXPECT(resp.find("\"age\":0") != std::string::npos);
+}
+
+TEST(HttpApi_CreateTable_Default_In_Schema_Visible_In_Describe) {
+    auto storage = std::make_unique<InMemoryStorageProvider>();
+    storage->open("in-memory://");
+
+    MockDispatcher dispatcher;
+    HttpApiAccessPlugin plugin;
+    plugin.open("in-memory://", storage.get(), &dispatcher);
+
+    std::string req = "{\"type\":\"query\",\"sql\":\"CREATE TABLE u (id INT PRIMARY KEY, qty INT DEFAULT 7)\"}";
+    std::string resp = plugin.handleRequest(req);
+    EXPECT(resp.find("\"success\":true") != std::string::npos);
+
+    // describeTable should report the default on the second column.
+    auto desc = storage->describeTable("u");
+    EXPECT(desc.has_value());
+    if (desc) {
+        EXPECT(desc->columns.size() == 2);
+        EXPECT(desc->columns[1].defaultValue.has_value());
+        EXPECT_EQ(desc->columns[1].defaultValue->asInt64(), std::int64_t{7});
+    }
 }

@@ -392,6 +392,23 @@ bool SqlParser::parseColumnSpec(ColumnDef& out, bool& hasPrimaryKey) {
             out.nullable = true;
             continue;
         }
+        // ponytail: DEFAULT <literal> — Phase 5 Item 7
+        // Supports int/float/string/bool/null literals. NULL default is
+        // accepted; non-null literal on a NOT NULL column is the caller's
+        // responsibility to validate (the storage provider can check).
+        if (consumeKeyword("DEFAULT")) {
+            if (consumeKeyword("NULL")) {
+                out.defaultValue = Value::null();
+            } else {
+                auto dv = consumeValueLiteral();
+                if (!dv) {
+                    error_ = "expected literal after DEFAULT";
+                    return false;
+                }
+                out.defaultValue = *dv;
+            }
+            continue;
+        }
         break;
     }
     return true;
@@ -432,7 +449,22 @@ std::optional<Command> SqlParser::parseInsert() {
     }
 
     if (!consumeKeyword("VALUES")) {
-        error_ = "expected VALUES";
+        // ponytail: INSERT INTO foo DEFAULT VALUES — Phase 5 Item 7.
+        // Emits an empty Tuple plus a sentinel "all-defaults" marker. The
+        // EngineLoop (or front-end) is responsible for materializing per-row
+        // defaults from the schema. We mark it with a one-element Tuple
+        // containing Value::null() and an empty columns list; the receiver
+        // checks both signals.
+        if (consumeKeyword("DEFAULT")) {
+            if (!consumeKeyword("VALUES")) {
+                error_ = "expected VALUES after DEFAULT";
+                return std::nullopt;
+            }
+            Tuple t;
+            // The empty Tuple + empty columns list is the "use defaults" signal.
+            return Command(CommandType::Insert, *table, std::nullopt, std::move(t));
+        }
+        error_ = "expected VALUES or DEFAULT VALUES";
         return std::nullopt;
     }
 

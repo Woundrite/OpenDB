@@ -162,11 +162,15 @@ private:
                 // The row's "_id" column (if present and non-null) is the key;
                 // otherwise pass Value::null() and let the engine auto-assign.
                 Value key = Value::null();
-                if (cmd.values->has("_id")) {
-                    Value id = cmd.values->get("_id");
-                    if (!id.isNull()) key = std::move(id);
+                Tuple row;
+                if (cmd.values) {
+                    row = *cmd.values;
+                    if (row.has("_id")) {
+                        Value id = row.get("_id");
+                        if (!id.isNull()) key = std::move(id);
+                    }
                 }
-                DbError err = storage_.put(txn, cmd.table, key, *cmd.values);
+                DbError err = storage_.put(txn, cmd.table, key, row);
                 if (err.isSentinel()) {
                     // Success: emit a quiet OK so the REPL feedback is consistent.
                     ResultSet rs;

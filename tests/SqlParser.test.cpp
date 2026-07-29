@@ -388,3 +388,83 @@ TEST(SqlParser_Limit_And_Offset_Populate_Command) {
     EXPECT(cmd->limit.has_value()  && *cmd->limit  == std::size_t{10});
     EXPECT(cmd->offset.has_value() && *cmd->offset == std::size_t{5});
 }
+
+// ---------------------------------------------------------------------------
+// Phase 5 Item 7: column-level DEFAULT and INSERT ... DEFAULT VALUES
+// ---------------------------------------------------------------------------
+
+TEST(SqlParser_CreateTable_Default_Int) {
+    SqlParser p;
+    auto s = p.parse("CREATE TABLE u (id INT PRIMARY KEY, count INT DEFAULT 42)");
+    EXPECT(s.has_value());
+    auto* ddl = std::get_if<DdlCreateTable>(&*s);
+    EXPECT(ddl != nullptr);
+    if (ddl) {
+        EXPECT(ddl->schema.columns.size() == 2);
+        EXPECT(ddl->schema.columns[1].defaultValue.has_value());
+        EXPECT(ddl->schema.columns[1].defaultValue->isInt64());
+        EXPECT_EQ(ddl->schema.columns[1].defaultValue->asInt64(), std::int64_t{42});
+    }
+}
+
+TEST(SqlParser_CreateTable_Default_String) {
+    SqlParser p;
+    auto s = p.parse("CREATE TABLE u (id INT PRIMARY KEY, name TEXT DEFAULT 'anon')");
+    EXPECT(s.has_value());
+    auto* ddl = std::get_if<DdlCreateTable>(&*s);
+    if (ddl) {
+        EXPECT(ddl->schema.columns[1].defaultValue.has_value());
+        EXPECT(ddl->schema.columns[1].defaultValue->isText());
+        EXPECT(ddl->schema.columns[1].defaultValue->asText() == "anon");
+    }
+}
+
+TEST(SqlParser_CreateTable_Default_Null) {
+    SqlParser p;
+    auto s = p.parse("CREATE TABLE u (id INT PRIMARY KEY, opt TEXT DEFAULT NULL)");
+    EXPECT(s.has_value());
+    auto* ddl = std::get_if<DdlCreateTable>(&*s);
+    if (ddl) {
+        EXPECT(ddl->schema.columns[1].defaultValue.has_value());
+        EXPECT(ddl->schema.columns[1].defaultValue->isNull());
+    }
+}
+
+TEST(SqlParser_CreateTable_Default_Bool) {
+    SqlParser p;
+    auto s = p.parse("CREATE TABLE u (id INT PRIMARY KEY, active BOOL DEFAULT true)");
+    EXPECT(s.has_value());
+    auto* ddl = std::get_if<DdlCreateTable>(&*s);
+    if (ddl) {
+        EXPECT(ddl->schema.columns[1].defaultValue.has_value());
+        EXPECT(ddl->schema.columns[1].defaultValue->isBool());
+        EXPECT(ddl->schema.columns[1].defaultValue->asBool() == true);
+    }
+}
+
+TEST(SqlParser_CreateTable_NoDefault_HasNullopt) {
+    SqlParser p;
+    auto s = p.parse("CREATE TABLE u (id INT PRIMARY KEY, name TEXT)");
+    EXPECT(s.has_value());
+    auto* ddl = std::get_if<DdlCreateTable>(&*s);
+    if (ddl) {
+        EXPECT(!ddl->schema.columns[0].defaultValue.has_value());
+        EXPECT(!ddl->schema.columns[1].defaultValue.has_value());
+    }
+}
+
+TEST(SqlParser_Insert_DefaultValues_ProducesEmptyTuple) {
+    SqlParser p;
+    auto s = p.parse("INSERT INTO users DEFAULT VALUES");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    EXPECT(cmd != nullptr);
+    if (cmd) {
+        EXPECT(cmd->type == CommandType::Insert);
+        EXPECT(cmd->table == "users");
+        EXPECT(cmd->values.has_value());
+        // The "use defaults" signal: empty Tuple.
+        EXPECT(!cmd->values->has("_id"));
+        EXPECT(cmd->values->empty());
+    }
+}

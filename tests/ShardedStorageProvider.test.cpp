@@ -27,9 +27,9 @@ TEST(Sharded_Create_Partitioned_Table) {
     Schema schema;
     schema.table = "users";
     schema.columns = {
-        ColumnDef{"id", ValueType::Int64, false, true, 0, {}},
-        ColumnDef{"name", ValueType::Text, true, false, 0, {}},
-        ColumnDef{"email", ValueType::Text, true, false, 0, {}},
+        ColumnDef{"id", ValueType::Int64, false, true, 0, {}, std::nullopt},
+        ColumnDef{"name", ValueType::Text, true, false, 0, {}, std::nullopt},
+        ColumnDef{"email", ValueType::Text, true, false, 0, {}, std::nullopt},
     };
     schema.partition = PartitionPolicy{PartitionPolicy::Kind::Hash, "id", 4, {}, {}};
 
@@ -43,8 +43,8 @@ TEST(Sharded_Put_Get_Same_Shard) {
     Schema schema;
     schema.table = "users";
     schema.columns = {
-        ColumnDef{"id", ValueType::Int64, false, true, 0, {}},
-        ColumnDef{"name", ValueType::Text, true, false, 0, {}},
+        ColumnDef{"id", ValueType::Int64, false, true, 0, {}, std::nullopt},
+        ColumnDef{"name", ValueType::Text, true, false, 0, {}, std::nullopt},
     };
     schema.partition = PartitionPolicy{PartitionPolicy::Kind::Hash, "id", 4, {}, {}};
     EXPECT(sharded->createTable(schema).isSentinel());
@@ -70,8 +70,8 @@ TEST(Sharded_Different_Keys_Different_Shards) {
     Schema schema;
     schema.table = "users";
     schema.columns = {
-        ColumnDef{"id", ValueType::Int64, false, true, 0, {}},
-        ColumnDef{"name", ValueType::Text, true, false, 0, {}},
+        ColumnDef{"id", ValueType::Int64, false, true, 0, {}, std::nullopt},
+        ColumnDef{"name", ValueType::Text, true, false, 0, {}, std::nullopt},
     };
     schema.partition = PartitionPolicy{PartitionPolicy::Kind::Hash, "id", 4, {}, {}};
     EXPECT(sharded->createTable(schema).isSentinel());
@@ -98,8 +98,8 @@ TEST(Sharded_NonPartitioned_Table_Shard0) {
     Schema schema;
     schema.table = "config";
     schema.columns = {
-        ColumnDef{"key", ValueType::Text, false, true, 0, {}},
-        ColumnDef{"value", ValueType::Text, true, false, 0, {}},
+        ColumnDef{"key", ValueType::Text, false, true, 0, {}, std::nullopt},
+        ColumnDef{"value", ValueType::Text, true, false, 0, {}, std::nullopt},
     };
     EXPECT(sharded->createTable(schema).isSentinel());
 
@@ -122,8 +122,8 @@ TEST(Sharded_Remove_And_Scan) {
     Schema schema;
     schema.table = "items";
     schema.columns = {
-        ColumnDef{"id", ValueType::Int64, false, true, 0, {}},
-        ColumnDef{"val", ValueType::Int64, true, false, 0, {}},
+        ColumnDef{"id", ValueType::Int64, false, true, 0, {}, std::nullopt},
+        ColumnDef{"val", ValueType::Int64, true, false, 0, {}, std::nullopt},
     };
     schema.partition = PartitionPolicy{PartitionPolicy::Kind::Hash, "id", 4, {}, {}};
     EXPECT(sharded->createTable(schema).isSentinel());
@@ -174,7 +174,7 @@ TEST(Sharded_Create_Without_Open_Fails) {
 
     Schema schema;
     schema.table = "x";
-    schema.columns = {ColumnDef{"id", ValueType::Int64, false, true, 0, {}}};
+    schema.columns = {ColumnDef{"id", ValueType::Int64, false, true, 0, {}, std::nullopt}};
     EXPECT(!sharded->createTable(schema).isSentinel());
 }
 
@@ -182,7 +182,7 @@ TEST(Sharded_ShardCount_Mismatch_Rejected) {
     auto sharded = makeSharded(4);
     Schema schema;
     schema.table = "users";
-    schema.columns = {ColumnDef{"id", ValueType::Int64, false, true, 0, {}}};
+    schema.columns = {ColumnDef{"id", ValueType::Int64, false, true, 0, {}, std::nullopt}};
     schema.partition = PartitionPolicy{PartitionPolicy::Kind::Hash, "id", 2, {}, {}};
     EXPECT(!sharded->createTable(schema).isSentinel());
 }
@@ -191,7 +191,7 @@ TEST(Sharded_Drop_Table_All_Shards) {
     auto sharded = makeSharded(2);
     Schema schema;
     schema.table = "t";
-    schema.columns = {ColumnDef{"id", ValueType::Int64, false, true, 0, {}}};
+    schema.columns = {ColumnDef{"id", ValueType::Int64, false, true, 0, {}, std::nullopt}};
     EXPECT(sharded->createTable(schema).isSentinel());
     EXPECT(sharded->tables().size() == 1);
     EXPECT(sharded->dropTable("t").isSentinel());
@@ -240,8 +240,8 @@ TEST(Sharded_Range_Partitioning_Routes_To_Boundary_Shard) {
     Schema s;
     s.table = "events";
     s.columns = {
-        ColumnDef{"region", ValueType::Text, false, true, 0, {}},
-        ColumnDef{"payload", ValueType::Int32, true, false, 0, {}},
+        ColumnDef{"region", ValueType::Text, false, true, 0, {}, std::nullopt},
+        ColumnDef{"payload", ValueType::Int32, true, false, 0, {}, std::nullopt},
     };
     PartitionPolicy pp;
     pp.kind = PartitionPolicy::Kind::Range;
@@ -287,8 +287,8 @@ TEST(Sharded_List_Partitioning_Routes_To_Membership_Shard) {
     Schema s;
     s.table = "teams";
     s.columns = {
-        ColumnDef{"name", ValueType::Text, false, true, 0, {}},
-        ColumnDef{"league", ValueType::Text, true, false, 0, {}},
+        ColumnDef{"name", ValueType::Text, false, true, 0, {}, std::nullopt},
+        ColumnDef{"league", ValueType::Text, true, false, 0, {}, std::nullopt},
     };
     PartitionPolicy pp;
     pp.kind = PartitionPolicy::Kind::List;

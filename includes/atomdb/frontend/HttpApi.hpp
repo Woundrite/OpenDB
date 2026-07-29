@@ -244,11 +244,35 @@ private:
             }
             case CommandType::Insert: {
                 Value key = Value::null();
+                Tuple row;
                 if (cmd.values) {
-                    auto idOpt = cmd.values->maybeGet("_id");
+                    row = *cmd.values;
+                    auto idOpt = row.maybeGet("_id");
                     if (idOpt && !idOpt->isNull()) key = *idOpt;
                 }
-                auto err = storage_->engine()->put(txnId, cmd.table, key, *cmd.values);
+
+                // ponytail: Phase 5 Item 7 — materialize column-level DEFAULTs
+                // when INSERT INTO foo DEFAULT VALUES arrives with an empty
+                // Tuple. For each declared column, fill it from the schema's
+                // defaultValue if present; columns without a default remain
+                // absent (the storage layer treats absent columns as NULL on
+                // nullable / rejects on non-nullable).
+                if (row.empty()) {
+                    auto schema = storage_->describeTable(cmd.table);
+                    if (schema) {
+                        for (const auto& col : schema->columns) {
+                            if (col.defaultValue.has_value()) {
+                                row.set(col.name, *col.defaultValue);
+                            }
+                        }
+                        // Re-extract _id from the materialized row so the
+                        // auto-key path can still pick it up.
+                        auto idOpt = row.maybeGet("_id");
+                        if (idOpt && !idOpt->isNull()) key = *idOpt;
+                    }
+                }
+
+                auto err = storage_->engine()->put(txnId, cmd.table, key, row);
                 if (!err.isSentinel()) error_opt = err;
                 else rs = ResultSet(true, {});
                 break;

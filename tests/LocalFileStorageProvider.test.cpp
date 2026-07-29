@@ -27,9 +27,9 @@ Schema makeUsersSchema() {
     Schema s;
     s.table = "users";
     s.columns = {
-        ColumnDef{"_id", ValueType::Int64, false, true, 0, {}},
-        ColumnDef{"name", ValueType::Text, false, false, 0, {}},
-        ColumnDef{"age", ValueType::Int32, true, false, 0, {}},
+        ColumnDef{"_id", ValueType::Int64, false, true, 0, {}, std::nullopt},
+        ColumnDef{"name", ValueType::Text, false, false, 0, {}, std::nullopt},
+        ColumnDef{"age", ValueType::Int32, true, false, 0, {}, std::nullopt},
     };
     return s;
 }
@@ -309,9 +309,9 @@ TEST(LocalFile_Multiple_Tables_And_Schemas_Persist) {
         Schema items;
         items.table = "items";
         items.columns = {
-            ColumnDef{"_id", ValueType::Int64, false, true, 0, {}},
-            ColumnDef{"sku",  ValueType::Text,  false, false, 16, {}},
-            ColumnDef{"qty",  ValueType::Int32, true,  false, 0, {}},
+            ColumnDef{"_id", ValueType::Int64, false, true, 0, {}, std::nullopt},
+            ColumnDef{"sku",  ValueType::Text,  false, false, 16, {}, std::nullopt},
+            ColumnDef{"qty",  ValueType::Int32, true,  false, 0, {}, std::nullopt},
         };
 
         EXPECT(p.createTable(users).isSentinel());
@@ -428,8 +428,8 @@ TEST(LocalFile_Comment_Box_Type_Blob_Persists) {
         Schema s;
         s.table = "files";
         s.columns = {
-            ColumnDef{"_id", ValueType::Int64, false, true, 0, {}},
-            ColumnDef{"payload", ValueType::Blob, false, false, 0, {}},
+            ColumnDef{"_id", ValueType::Int64, false, true, 0, {}, std::nullopt},
+            ColumnDef{"payload", ValueType::Blob, false, false, 0, {}, std::nullopt},
         };
         EXPECT(p.createTable(s).isSentinel());
 

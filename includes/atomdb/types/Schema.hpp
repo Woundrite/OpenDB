@@ -58,6 +58,13 @@ struct ColumnDef {
     //   {"collation":"en_US.UTF-8"} — text collation (future)
     //   {"default":"'1970-01-01'"}  — server-side default (future)
     std::unordered_map<std::string, std::string> extensions;
+
+    // Phase 5 Item 7: column-level DEFAULT value. Used by INSERT (when the
+    // column is omitted) and by INSERT ... DEFAULT VALUES. Stored as a
+    // Value (not as a string in extensions) so that the parser produces a
+    // typed Value directly — INT default 42 -> Value::int64(42).
+    // Optional: std::nullopt means "no default declared".
+    std::optional<Value> defaultValue;
 };
 
 // Declarative partition policy (PostgreSQL-style). Owned by the schema and

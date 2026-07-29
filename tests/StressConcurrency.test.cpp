@@ -18,8 +18,8 @@ Schema makeUsersSchema() {
     Schema s;
     s.table = "users";
     s.columns = {
-        ColumnDef{"_id", ValueType::Int64, false, true, 0, {}},
-        ColumnDef{"name", ValueType::Text, false, false, 0, {}},
+        ColumnDef{"_id", ValueType::Int64, false, true, 0, {}, std::nullopt},
+        ColumnDef{"name", ValueType::Text, false, false, 0, {}, std::nullopt},
     };
     return s;
 }

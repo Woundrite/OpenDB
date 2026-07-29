@@ -67,8 +67,8 @@ int main() {
     Schema users = {
         "users",
         {
-            ColumnDef{"id",   ValueType::Int64, false, true,  0, {}},
-            ColumnDef{"name", ValueType::Text,  true,  false, 0, {}},
+            ColumnDef{"id",   ValueType::Int64, false, true,  0, {}, std::nullopt},
+            ColumnDef{"name", ValueType::Text,  true,  false, 0, {}, std::nullopt},
         },
         std::nullopt,
     };
