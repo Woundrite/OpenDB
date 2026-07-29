@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -19,16 +20,29 @@ enum class LockMode {
     Exclusive,
 };
 
-// LockManager (spec §5.2) — table-level Shared/Exclusive locks with blocking
-// semantics. v0.1 granularity is table-level; row-level is a planned upgrade
-// (spec §1.2, §5.4). The user selected "block on lock with a wait queue" over
-// "fail immediately", so `acquire()` blocks on a condition variable until the
-// request is grantable, then returns. To support deadlock detection without
-// recursion, `acquire` does *not* call into DeadlockDetector itself; the
-// EngineLoop checks the wait-for graph separately via DeadlockDetector, which
-// reads from this LockManager's waiter records.
+// Hash for ResourceKey so it can be used as an unordered_map key.
+struct LockResourceHash {
+    std::size_t operator()(const std::tuple<std::string, std::string>& key) const noexcept {
+        std::hash<std::string> h;
+        return h(std::get<0>(key)) ^ (h(std::get<1>(key)) << 1);
+    }
+};
+
+// LockManager (spec §5.2, §5.4) — Shared/Exclusive locks with blocking
+// semantics. v0.1 granularity was table-level; v0.2 (Phase 5 Item 6 inner-core
+// upgrade) adds optional row-level granularity via ResourceKey. The user
+// selected "block on lock with a wait queue" over "fail immediately", so
+// `acquire()` blocks on a condition variable until the request is grantable,
+// then returns. To support deadlock detection without recursion, `acquire`
+// does *not* call into DeadlockDetector itself; the EngineLoop checks the
+// wait-for graph separately via DeadlockDetector, which reads from this
+// LockManager's waiter records.
 //
-// Spec §5.2 compatibility matrix:
+// ResourceKey identifies a lockable resource:
+//   - (table, "") -> the whole table (legacy table-level lock).
+//   - (table, "<key>") -> a single row keyed by `<key>`.
+//
+// Spec §5.2 compatibility matrix (applied per resource):
 //   Held-by-others \ Requested   Shared   Exclusive
 //   None held                      Grant   Grant
 //   Shared held                    Grant   Deny
@@ -39,107 +53,146 @@ enum class LockMode {
 // caller to block until those txns release.
 class LockManager {
 public:
-    // Acquire a lock, blocking until grantable. Returns true once granted (the
-    // only failure mode in v0.1 is spurious-wakeup storms, which we treat as a
-    // timeout loop and will not surface as false). Deadlock detection is the
-    // EngineLoop's responsibility: it should call DeadlockDetector with *this
-    // LockManager and the current TxnId between waits (we expose the required
-    // query methods for that).
+    using ResourceKey = std::tuple<std::string, std::string>; // (table, rowKey)
+
+    static ResourceKey tableKey(const std::string& table) {
+        return ResourceKey{table, std::string{}};
+    }
+    static ResourceKey rowKey(const std::string& table, const std::string& key) {
+        return ResourceKey{table, key};
+    }
+
+    // Acquire a table-level lock (backwards-compatible shortcut).
     void acquire(TxnId txn, const std::string& table, LockMode mode) {
+        acquireKey(txn, tableKey(table), mode);
+    }
+
+    // Acquire a lock on a specific resource (table or row).
+    void acquireKey(TxnId txn, const ResourceKey& key, LockMode mode) {
         std::unique_lock<std::mutex> lk(mutex_);
-        while (!grantableUnlocked(txn, table, mode)) {
-            // Record that this txn is waiting on this table, attached to its
-            // requested mode, so DeadlockDetector can walk the wait-for chain.
-            waiters_[table].push_back(Waiter{txn, mode});
+        while (!grantableUnlocked(txn, key, mode)) {
+            waiters_[key].push_back(Waiter{txn, mode});
             cv_.wait(lk);
-            // Remove our wait marker before retrying (we may immediately become a
-            // waiter again on the next iteration if not grantable yet).
-            auto& w = waiters_[table];
+            auto& w = waiters_[key];
             for (auto it = w.begin(); it != w.end(); ++it) {
                 if (it->txn == txn) { w.erase(it); break; }
             }
         }
-        grantUnlocked(txn, table, mode);
+        grantUnlocked(txn, key, mode);
     }
 
-    // Release every lock held by `txn` across all tables, then notify all
-    // blocked waiters (a single broadcast is simplest & correct, even if it
-    // wakes a few spurious waiters).
+    // Release every lock held by `txn` across all tables/rows, then notify
+    // all blocked waiters.
     void release(TxnId txn) {
-        std::vector<std::string> affected;
+        std::vector<ResourceKey> affected;
         {
             std::lock_guard<std::mutex> lk(mutex_);
             for (auto it = held_.begin(); it != held_.end(); ) {
-                if (it->second.holder == txn) {
+                auto& holders = it->second.holders;
+                bool removed = false;
+                for (auto hi = holders.begin(); hi != holders.end(); ++hi) {
+                    if (*hi == txn) { holders.erase(hi); removed = true; break; }
+                }
+                if (removed) {
                     affected.push_back(it->first);
-                    it = held_.erase(it);
+                    if (holders.empty()) it = held_.erase(it);
+                    else ++it;
                 } else {
                     ++it;
                 }
             }
-            // also clear any updater register for this txn
             upgraders_.erase(txn);
         }
         if (!affected.empty()) cv_.notify_all();
     }
 
-    // Release just the lock on `table` held by `txn` if any.
+    // Release just the table-level lock on `table` held by `txn` if any.
     void release(TxnId txn, const std::string& table) {
+        releaseKey(txn, tableKey(table));
+    }
+
+    // Release the lock on a specific resource held by `txn`, if any.
+    void releaseKey(TxnId txn, const ResourceKey& key) {
         bool changed = false;
         {
             std::lock_guard<std::mutex> lk(mutex_);
-            auto it = held_.find(table);
-            if (it != held_.end() && it->second.holder == txn) {
-                held_.erase(it);
-                changed = true;
+            auto it = held_.find(key);
+            if (it != held_.end()) {
+                auto& holders = it->second.holders;
+                for (auto hi = holders.begin(); hi != holders.end(); ++hi) {
+                    if (*hi == txn) { holders.erase(hi); changed = true; break; }
+                }
+                if (changed && holders.empty()) held_.erase(it);
             }
         }
         if (changed) cv_.notify_all();
     }
 
     // Read-only query for deadlock detection. Returns the TxnIds currently
-    // holding any lock mode on `table`.
+    // holding any lock mode on `table` (table-level + all row-level).
     std::vector<TxnId> getHolders(const std::string& table) const {
         std::lock_guard<std::mutex> lk(mutex_);
-        std::vector<TxnId> out;
-        auto it = held_.find(table);
-        if (it != held_.end()) out.push_back(it->second.holder);
-        return out;
+        std::unordered_set<TxnId> uniq;
+        for (const auto& [key, lock] : held_) {
+            if (std::get<0>(key) == table) {
+                for (TxnId h : lock.holders) uniq.insert(h);
+            }
+        }
+        return std::vector<TxnId>(uniq.begin(), uniq.end());
     }
 
     // Read-only query for deadlock detection. Returns the TxnIds currently
     // waiting (any mode) for a lock on `table`.
     std::vector<TxnId> getWaiters(const std::string& table) const {
         std::lock_guard<std::mutex> lk(mutex_);
-        std::vector<TxnId> out;
-        auto it = waiters_.find(table);
-        if (it != waiters_.end()) {
-            out.reserve(it->second.size());
-            for (const auto& w : it->second) out.push_back(w.txn);
+        std::unordered_set<TxnId> uniq;
+        for (const auto& [key, list] : waiters_) {
+            if (std::get<0>(key) != table) continue;
+            for (const auto& w : list) uniq.insert(w.txn);
         }
-        return out;
+        return std::vector<TxnId>(uniq.begin(), uniq.end());
     }
 
-    // Read-only: returns the (single) table this txn is waiting on, or "" if
-    // not waiting. Used by the DeadlockDetector to start a wait-chain walk.
-    std::string waiterTable(TxnId txn) const {
+    // Read-only: returns a *representative* resource this txn is waiting on,
+    // or an empty key if not waiting. Used by DeadlockDetector to start a
+    // wait-chain walk. (Legacy: returns a table-level ResourceKey — the
+    // detector only needs the table name.)
+    ResourceKey waiterResource(TxnId txn) const {
         std::lock_guard<std::mutex> lk(mutex_);
-        for (const auto& [table, list] : waiters_) {
-            for (const auto& w : list) if (w.txn == txn) return table;
+        for (const auto& [key, list] : waiters_) {
+            for (const auto& w : list) if (w.txn == txn) return key;
         }
-        return std::string{};
+        return ResourceKey{std::string{}, std::string{}};
+    }
+
+    // Back-compat helper: returns the table this txn is waiting on.
+    std::string waiterTable(TxnId txn) const {
+        return std::get<0>(waiterResource(txn));
     }
 
     bool isGranted(TxnId txn, const std::string& table) const {
         std::lock_guard<std::mutex> lk(mutex_);
-        auto it = held_.find(table);
-        return it != held_.end() && it->second.holder == txn;
+        for (const auto& [key, lock] : held_) {
+            if (std::get<0>(key) != table) continue;
+            for (TxnId h : lock.holders) if (h == txn) return true;
+        }
+        return false;
+    }
+
+    bool isGrantedKey(TxnId txn, const ResourceKey& key) const {
+        std::lock_guard<std::mutex> lk(mutex_);
+        auto it = held_.find(key);
+        if (it == held_.end()) return false;
+        for (TxnId h : it->second.holders) if (h == txn) return true;
+        return false;
     }
 
 private:
     struct Lock {
-        TxnId holder;
-        LockMode mode;
+        // Either a single Exclusive holder (exclusive mode) or a set of
+        // Shared holders (shared mode). Mode discriminates which is active.
+        LockMode mode = LockMode::Shared;
+        std::vector<TxnId> holders;
     };
     struct Waiter {
         TxnId txn;
@@ -147,41 +200,49 @@ private:
     };
 
     // Precondition: caller holds mutex_.
-    bool grantableUnlocked(TxnId txn, const std::string& table, LockMode mode) const {
-        auto it = held_.find(table);
+    bool grantableUnlocked(TxnId txn, const ResourceKey& key, LockMode mode) const {
+        auto it = held_.find(key);
         if (it == held_.end()) return true;
-        if (it->second.holder == txn) {
-            // Self-held: always compatible, including Shared -> Exclusive upgrade.
-            return true;
-        }
-        // Held by someone else.
+        // Self-held: txn already holds the lock. Always grantable (so a
+        // holder can upgrade Shared -> Exclusive).
+        for (TxnId h : it->second.holders) if (h == txn) return true;
+        // Otherwise: only Shared-mode resources can accept concurrent Shared.
         if (mode == LockMode::Shared && it->second.mode == LockMode::Shared) return true;
         return false;
     }
 
     // Precondition: caller holds mutex_ AND grantableUnlocked returned true.
-    void grantUnlocked(TxnId txn, const std::string& table, LockMode mode) {
-        auto it = held_.find(table);
+    void grantUnlocked(TxnId txn, const ResourceKey& key, LockMode mode) {
+        auto it = held_.find(key);
         if (it == held_.end()) {
-            held_.emplace(table, Lock{txn, mode});
+            Lock l;
+            l.mode = mode;
+            l.holders.push_back(txn);
+            held_.emplace(key, std::move(l));
             return;
         }
-        if (it->second.holder == txn) {
-            // Self-held: upgrade if applicable, never downgrade.
+        // Self-held: upgrade Shared -> Exclusive.
+        bool alreadyHolder = false;
+        for (TxnId h : it->second.holders) if (h == txn) { alreadyHolder = true; break; }
+        if (alreadyHolder) {
             if (mode == LockMode::Exclusive && it->second.mode == LockMode::Shared) {
                 it->second.mode = LockMode::Exclusive;
             }
             return;
         }
-        // Should be unreachable because grantableUnlocked returned true.
-        it->second.holder = txn;
-        it->second.mode = mode;
+        // Adding a new holder. Convert Shared -> Exclusive: collapse all
+        // existing shared holders into one slot, then set mode Exclusive.
+        if (mode == LockMode::Exclusive) {
+            it->second.holders.clear();
+            it->second.mode = LockMode::Exclusive;
+        }
+        it->second.holders.push_back(txn);
     }
 
     mutable std::mutex mutex_;
     std::condition_variable cv_;
-    std::unordered_map<std::string, Lock> held_;
-    std::unordered_map<std::string, std::vector<Waiter>> waiters_;
+    std::unordered_map<ResourceKey, Lock, LockResourceHash> held_;
+    std::unordered_map<ResourceKey, std::vector<Waiter>, LockResourceHash> waiters_;
     std::unordered_map<TxnId, std::string> upgraders_; // reserved for future use
 };
 

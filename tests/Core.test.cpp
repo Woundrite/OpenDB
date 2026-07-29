@@ -279,3 +279,120 @@ TEST(DeadlockDetector_Self_NotWaiting_No_False_Positive) {
     auto victim = dd.detectCycle(t);
     EXPECT(!victim.has_value());
 }
+
+// ---------------------------------------------------------------------------
+// LockManager row-level locks (Phase 5 Item 6 inner-core upgrade)
+// ---------------------------------------------------------------------------
+
+TEST(Lock_RowLevel_DifferentRows_NoConflict) {
+    // Two transactions acquiring Exclusive on different rows of the same table
+    // must both be granted — that's the whole point of row-level granularity.
+    LockManager lm;
+    TxnId t1{1}, t2{2};
+    lm.acquireKey(t1, LockManager::rowKey("users", "u1"), LockMode::Exclusive);
+    lm.acquireKey(t2, LockManager::rowKey("users", "u2"), LockMode::Exclusive);
+    EXPECT(lm.isGrantedKey(t1, LockManager::rowKey("users", "u1")));
+    EXPECT(lm.isGrantedKey(t2, LockManager::rowKey("users", "u2")));
+}
+
+TEST(Lock_RowLevel_SameRow_Exclusive_Blocks) {
+    // T1 takes Exclusive on (users,u1). T2 attempts the same -> blocks.
+    LockManager lm;
+    TxnId t1{1}, t2{2};
+    lm.acquireKey(t1, LockManager::rowKey("users", "u1"), LockMode::Exclusive);
+    EXPECT(lm.isGrantedKey(t1, LockManager::rowKey("users", "u1")));
+
+    std::atomic<bool> started{false};
+    std::atomic<bool> finished{false};
+    std::thread waiter([&]{
+        started = true;
+        lm.acquireKey(t2, LockManager::rowKey("users", "u1"), LockMode::Exclusive);
+        finished = true;
+    });
+    while (!started) std::this_thread::yield();
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    EXPECT(started.load());
+    EXPECT(!finished.load()); // still blocked
+
+    lm.release(t1);
+    waiter.join();
+    EXPECT(finished.load());
+    EXPECT(lm.isGrantedKey(t2, LockManager::rowKey("users", "u1")));
+}
+
+TEST(Lock_RowLevel_SameRow_Shared_ConcurrentReaders) {
+    // Two Shared locks on the same row must coexist.
+    LockManager lm;
+    TxnId t1{1}, t2{2};
+    lm.acquireKey(t1, LockManager::rowKey("users", "u1"), LockMode::Shared);
+    lm.acquireKey(t2, LockManager::rowKey("users", "u1"), LockMode::Shared);
+    EXPECT(lm.isGrantedKey(t1, LockManager::rowKey("users", "u1")));
+    EXPECT(lm.isGrantedKey(t2, LockManager::rowKey("users", "u1")));
+}
+
+TEST(Lock_RowLevel_TableAndRow_Are_Independent) {
+    // A table-level Exclusive lock on "users" should NOT block an Exclusive
+    // lock on (users, u1) — and vice versa — because row-level granularity
+    // must not be masked by an accidental table-wide lock.
+    LockManager lm;
+    TxnId t1{1}, t2{2};
+    lm.acquire(t1, "users", LockMode::Exclusive); // table-level
+    lm.acquireKey(t2, LockManager::rowKey("users", "u1"), LockMode::Exclusive);
+    EXPECT(lm.isGranted(t1, "users"));
+    EXPECT(lm.isGrantedKey(t2, LockManager::rowKey("users", "u1")));
+}
+
+TEST(Lock_RowLevel_GetHolders_AggregatesAcrossRows) {
+    // getHolders("users") should return every txn holding any lock on any row
+    // of that table (used by DeadlockDetector to walk the wait-for chain).
+    LockManager lm;
+    TxnId t1{1}, t2{2}, t3{3};
+    lm.acquireKey(t1, LockManager::rowKey("users", "u1"), LockMode::Exclusive);
+    lm.acquireKey(t2, LockManager::rowKey("users", "u2"), LockMode::Exclusive);
+    lm.acquireKey(t3, LockManager::rowKey("users", "u3"), LockMode::Shared);
+
+    auto holders = lm.getHolders("users");
+    EXPECT(holders.size() == 3);
+}
+
+TEST(Lock_RowLevel_ReleaseKey_Specific_Row_Only) {
+    // releaseKey must only release the named row, leaving other rows held.
+    LockManager lm;
+    TxnId t{1};
+    lm.acquireKey(t, LockManager::rowKey("users", "u1"), LockMode::Exclusive);
+    lm.acquireKey(t, LockManager::rowKey("users", "u2"), LockMode::Exclusive);
+
+    lm.releaseKey(t, LockManager::rowKey("users", "u1"));
+    EXPECT(!lm.isGrantedKey(t, LockManager::rowKey("users", "u1")));
+    EXPECT(lm.isGrantedKey(t, LockManager::rowKey("users", "u2")));
+}
+
+TEST(Lock_RowLevel_Upgrade_Shared_To_Exclusive) {
+    // Same txn that holds a Shared lock on a row can upgrade to Exclusive
+    // (matches the existing table-level upgrade behavior).
+    LockManager lm;
+    TxnId t{1};
+    lm.acquireKey(t, LockManager::rowKey("users", "u1"), LockMode::Shared);
+    lm.acquireKey(t, LockManager::rowKey("users", "u1"), LockMode::Exclusive);
+    EXPECT(lm.isGrantedKey(t, LockManager::rowKey("users", "u1")));
+}
+
+TEST(Lock_RowLevel_WaiterResource_Reports_Table) {
+    // waiterResource() returns the (table, rowKey) tuple. waiterTable() is
+    // the back-compat shim that returns only the table name.
+    LockManager lm;
+    TxnId t1{1}, t2{2};
+    lm.acquireKey(t1, LockManager::rowKey("users", "u1"), LockMode::Exclusive);
+
+    std::atomic<bool> started{false};
+    std::thread waiter([&]{
+        started = true;
+        lm.acquireKey(t2, LockManager::rowKey("users", "u1"), LockMode::Exclusive);
+    });
+    while (!started) std::this_thread::yield();
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+    EXPECT(lm.waiterTable(t2) == std::string{"users"});
+    lm.release(t1);
+    waiter.join();
+}
