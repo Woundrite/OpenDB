@@ -2,6 +2,7 @@ build/
 *.o
 *.obj
 *.exe
+*.atoms
 node_modules/
 dist/
 *.swp
