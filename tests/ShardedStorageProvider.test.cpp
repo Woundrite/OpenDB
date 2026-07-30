@@ -320,3 +320,236 @@ TEST(Sharded_List_Partitioning_Routes_To_Membership_Shard) {
     sharded->engine()->scan(TxnId{99}, "teams", [&](const Tuple&) { ++seen; });
     EXPECT_EQ(seen, std::size_t{3});
 }
+
+// ---------------------------------------------------------------------------
+// Phase 5 Item 19: Sharded recovery — close, reopen, data still readable.
+// ---------------------------------------------------------------------------
+
+TEST(Sharded_Recovery_PersistsAcrossReopen_HashSharded) {
+    // Two LocalFile shards, populate across both, close, reopen, verify data.
+    std::error_code ec;
+    std::filesystem::remove("build/test_shard_recov_a.db", ec);
+    std::filesystem::remove("build/test_shard_recov_b.db", ec);
+
+    {
+        std::vector<std::unique_ptr<IStorageProvider>> v;
+        v.push_back(std::make_unique<LocalFileStorageProvider>());
+        v.push_back(std::make_unique<LocalFileStorageProvider>());
+        EXPECT(v[0]->open("file://build/test_shard_recov_a.db").isSentinel());
+        EXPECT(v[1]->open("file://build/test_shard_recov_b.db").isSentinel());
+
+        auto sharded = std::make_unique<ShardedStorageProvider>(std::move(v), true);
+        EXPECT(sharded->open("file://noop").isSentinel());
+
+        Schema s;
+        s.table = "users";
+        s.columns = {
+            ColumnDef{"id", ValueType::Int64, false, true, 0, {}, std::nullopt},
+            ColumnDef{"name", ValueType::Text, true, false, 0, {}, std::nullopt},
+        };
+        PartitionPolicy pp;
+        pp.kind = PartitionPolicy::Kind::Hash;
+        pp.column = "id";
+        pp.shardCount = 2;
+        s.partition = pp;
+        EXPECT(sharded->createTable(s).isSentinel());
+
+        TransactionManager txnm;
+        TxnId t = txnm.beginTxn();
+        // Insert 10 rows; FNV-1a(id) routes some to each shard.
+        for (std::int64_t i = 1; i <= 10; ++i) {
+            Tuple row = Tuple::make({
+                {"id",   Value::int64(i)},
+                {"name", Value::text("u" + std::to_string(i))},
+            });
+            EXPECT(sharded->engine()->put(t, "users", Value::int64(i), row).isSentinel());
+        }
+        txnm.commitTxn(t);
+        EXPECT(sharded->engine()->commit(t, txnm.visibleSeq()).isSentinel());
+
+        EXPECT(sharded->close().isSentinel());
+    }
+    // Reopen with the same per-shard files. Sharding must still work — same
+    // hash function maps the same id to the same shard.
+    {
+        std::vector<std::unique_ptr<IStorageProvider>> v;
+        v.push_back(std::make_unique<LocalFileStorageProvider>());
+        v.push_back(std::make_unique<LocalFileStorageProvider>());
+        EXPECT(v[0]->open("file://build/test_shard_recov_a.db").isSentinel());
+        EXPECT(v[1]->open("file://build/test_shard_recov_b.db").isSentinel());
+
+        auto sharded = std::make_unique<ShardedStorageProvider>(std::move(v), true);
+        EXPECT(sharded->open("file://noop").isSentinel());
+
+        // Schema persisted on shards.
+        EXPECT(sharded->tables().size() == 1);
+        auto desc = sharded->describeTable("users");
+        EXPECT(desc.has_value());
+
+        // All 10 rows must be findable via the sharded engine.
+        for (std::int64_t i = 1; i <= 10; ++i) {
+            auto got = sharded->engine()->get(TxnId{99}, "users", Value::int64(i));
+            EXPECT(got.has_value());
+            if (got) {
+                EXPECT(got->get("name").asText() == std::string{"u" + std::to_string(i)});
+            }
+        }
+
+        std::size_t seen = 0;
+        sharded->engine()->scan(TxnId{99}, "users", [&](const Tuple&) { ++seen; });
+        EXPECT_EQ(seen, std::size_t{10});
+
+        EXPECT(sharded->close().isSentinel());
+    }
+
+    std::filesystem::remove("build/test_shard_recov_a.db", ec);
+    std::filesystem::remove("build/test_shard_recov_b.db", ec);
+}
+
+TEST(Sharded_Recovery_AbortedWrite_NotVisible_AfterReopen) {
+    // Phase 5 Item 19: same CrashDurable semantics as single-shard: aborted
+    // staged writes must NOT survive a reopen.
+    std::error_code ec;
+    std::filesystem::remove("build/test_shard_abort_a.db", ec);
+    std::filesystem::remove("build/test_shard_abort_b.db", ec);
+
+    {
+        std::vector<std::unique_ptr<IStorageProvider>> v;
+        v.push_back(std::make_unique<LocalFileStorageProvider>());
+        v.push_back(std::make_unique<LocalFileStorageProvider>());
+        EXPECT(v[0]->open("file://build/test_shard_abort_a.db").isSentinel());
+        EXPECT(v[1]->open("file://build/test_shard_abort_b.db").isSentinel());
+
+        auto sharded = std::make_unique<ShardedStorageProvider>(std::move(v), true);
+        EXPECT(sharded->open("file://noop").isSentinel());
+
+        Schema s;
+        s.table = "users";
+        s.columns = {
+            ColumnDef{"id", ValueType::Int64, false, true, 0, {}, std::nullopt},
+        };
+        PartitionPolicy pp;
+        pp.kind = PartitionPolicy::Kind::Hash;
+        pp.column = "id";
+        pp.shardCount = 2;
+        s.partition = pp;
+        EXPECT(sharded->createTable(s).isSentinel());
+
+        TransactionManager txnm;
+        TxnId t = txnm.beginTxn();
+        EXPECT(sharded->engine()->put(t, "users", Value::int64(1),
+                                      Tuple::make({{"id", Value::int64(1)}})).isSentinel());
+        txnm.commitTxn(t);
+        EXPECT(sharded->engine()->commit(t, txnm.visibleSeq()).isSentinel());
+
+        // Stage a doomed write, abort, then close.
+        TxnId t2 = txnm.beginTxn();
+        EXPECT(sharded->engine()->put(t2, "users", Value::int64(99),
+                                      Tuple::make({{"id", Value::int64(99)}})).isSentinel());
+        txnm.abortTxn(t2);
+        EXPECT(sharded->engine()->abort(t2).isSentinel());
+        EXPECT(sharded->close().isSentinel());
+    }
+    // Reopen and verify the aborted write isn't there.
+    {
+        std::vector<std::unique_ptr<IStorageProvider>> v;
+        v.push_back(std::make_unique<LocalFileStorageProvider>());
+        v.push_back(std::make_unique<LocalFileStorageProvider>());
+        EXPECT(v[0]->open("file://build/test_shard_abort_a.db").isSentinel());
+        EXPECT(v[1]->open("file://build/test_shard_abort_b.db").isSentinel());
+
+        auto sharded = std::make_unique<ShardedStorageProvider>(std::move(v), true);
+        EXPECT(sharded->open("file://noop").isSentinel());
+
+        auto got = sharded->engine()->get(TxnId{99}, "users", Value::int64(99));
+        EXPECT(!got.has_value());
+
+        auto real = sharded->engine()->get(TxnId{99}, "users", Value::int64(1));
+        EXPECT(real.has_value());
+
+        EXPECT(sharded->close().isSentinel());
+    }
+
+    std::filesystem::remove("build/test_shard_abort_a.db", ec);
+    std::filesystem::remove("build/test_shard_abort_b.db", ec);
+}
+
+TEST(Sharded_Recovery_ListPartitioned_SameShard_Persists) {
+    // List-partitioned routing must also recover cleanly: the partition
+    // metadata lives in the schema on EACH shard, not centrally.
+    std::error_code ec;
+    std::filesystem::remove("build/test_shard_listrecov_a.db", ec);
+    std::filesystem::remove("build/test_shard_listrecov_b.db", ec);
+
+    {
+        std::vector<std::unique_ptr<IStorageProvider>> v;
+        v.push_back(std::make_unique<LocalFileStorageProvider>());
+        v.push_back(std::make_unique<LocalFileStorageProvider>());
+        EXPECT(v[0]->open("file://build/test_shard_listrecov_a.db").isSentinel());
+        EXPECT(v[1]->open("file://build/test_shard_listrecov_b.db").isSentinel());
+
+        auto sharded = std::make_unique<ShardedStorageProvider>(std::move(v), true);
+        EXPECT(sharded->open("file://noop").isSentinel());
+
+        Schema s;
+        s.table = "teams";
+        s.columns = {
+            ColumnDef{"name", ValueType::Text, false, true, 0, {}, std::nullopt},
+            ColumnDef{"league", ValueType::Text, true, false, 0, {}, std::nullopt},
+        };
+        PartitionPolicy pp;
+        pp.kind = PartitionPolicy::Kind::List;
+        pp.column = "league";
+        pp.shardCount = 2;
+        pp.lists = {
+            {Value::text("ALPHA")},
+            {Value::text("BETA")},
+        };
+        s.partition = pp;
+        EXPECT(sharded->createTable(s).isSentinel());
+
+        TransactionManager txnm;
+        TxnId t = txnm.beginTxn();
+        EXPECT(sharded->engine()->put(t, "teams", Value::text("a"),
+            Tuple::make({{"name", Value::text("a")}, {"league", Value::text("ALPHA")}})).isSentinel());
+        EXPECT(sharded->engine()->put(t, "teams", Value::text("b"),
+            Tuple::make({{"name", Value::text("b")}, {"league", Value::text("BETA")}})).isSentinel());
+        txnm.commitTxn(t);
+        EXPECT(sharded->engine()->commit(t, txnm.visibleSeq()).isSentinel());
+        EXPECT(sharded->close().isSentinel());
+    }
+    {
+        std::vector<std::unique_ptr<IStorageProvider>> v;
+        v.push_back(std::make_unique<LocalFileStorageProvider>());
+        v.push_back(std::make_unique<LocalFileStorageProvider>());
+        EXPECT(v[0]->open("file://build/test_shard_listrecov_a.db").isSentinel());
+        EXPECT(v[1]->open("file://build/test_shard_listrecov_b.db").isSentinel());
+
+        auto sharded = std::make_unique<ShardedStorageProvider>(std::move(v), true);
+        EXPECT(sharded->open("file://noop").isSentinel());
+
+        // Recovered schema still has the partition policy (kind is
+        // persisted; lists themselves are not — see LocalFileStorageProvider
+        // note on serialization. Recovery of the lists array is a separate
+        // v0.2 enhancement).
+        auto desc = sharded->describeTable("teams");
+        EXPECT(desc.has_value());
+        EXPECT(desc->partition.has_value());
+        EXPECT(desc->partition->kind == PartitionPolicy::Kind::List);
+
+        // Reads route correctly after reopen (Hash fallback, since the lists
+        // array isn't reloaded).
+        auto a = sharded->engine()->get(TxnId{99}, "teams", Value::text("a"));
+        EXPECT(a.has_value());
+        EXPECT(a->get("league").asText() == std::string{"ALPHA"});
+
+        auto b = sharded->engine()->get(TxnId{99}, "teams", Value::text("b"));
+        EXPECT(b.has_value());
+        EXPECT(b->get("league").asText() == std::string{"BETA"});
+
+        EXPECT(sharded->close().isSentinel());
+    }
+
+    std::filesystem::remove("build/test_shard_listrecov_a.db", ec);
+    std::filesystem::remove("build/test_shard_listrecov_b.db", ec);
+}

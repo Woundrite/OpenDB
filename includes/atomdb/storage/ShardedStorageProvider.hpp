@@ -74,23 +74,43 @@ public:
         if (shards_.empty()) return DbError::internal("no shards configured");
         // ponytail: children_already_open_ skips per-child re-opens so per-shard
         // URIs (e.g. shard0.db, shard1.db) aren't overwritten by the parent URI.
-        if (children_already_open_) {
-            opened_ = true;
-            return DbError::sentinel();
-        }
-        // Open all children. Roll back on any failure.
-        std::size_t openedCount = 0;
-        for (auto& s : shards_) {
-            auto r = s->open(uri);
-            if (!r.isSentinel()) {
-                for (std::size_t i = 0; i < openedCount; ++i) {
-                    shards_[i]->close();
+        if (!children_already_open_) {
+            // Open all children. Roll back on any failure.
+            std::size_t openedCount = 0;
+            for (auto& s : shards_) {
+                auto r = s->open(uri);
+                if (!r.isSentinel()) {
+                    for (std::size_t i = 0; i < openedCount; ++i) {
+                        shards_[i]->close();
+                    }
+                    return r;
                 }
-                return r;
+                ++openedCount;
             }
-            ++openedCount;
         }
         opened_ = true;
+
+        // ponytail: rebuild in-memory schema + partition-policy cache from the
+        // child providers. Without this, after a reopen the provider's
+        // describeTable() and tables() would return empty even though the
+        // children carry the schema metadata. Each child holds the same DDL
+        // (we propagated createTable to all shards in Phase 4), so reading from
+        // shard 0 is sufficient. We UNION across shards defensively in case the
+        // user manually wrote to one shard only.
+        {
+            const std::lock_guard<std::mutex> lk(schema_mu_);
+            schemas_.clear();
+            for (auto& s : shards_) {
+                for (const auto& name : s->tables()) {
+                    auto sc = s->describeTable(name);
+                    if (!sc) continue;
+                    if (sc->partition) {
+                        engine_->installPartitionPolicy(name, *sc->partition);
+                    }
+                    schemas_[name] = std::move(*sc);
+                }
+            }
+        }
         return DbError::sentinel();
     }
 
