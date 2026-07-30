@@ -73,7 +73,7 @@ public:
     const Metrics& metrics() const noexcept { return metrics_; }
 
     // Phase 5 Item 15: render a JSON snapshot of the metrics for /metrics.
-    std::string renderMetricsSnapshot() const;
+    std::string renderMetricsSnapshot() const override;
 
 private:
     // Worker thread main loop

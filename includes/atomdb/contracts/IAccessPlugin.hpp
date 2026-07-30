@@ -109,6 +109,11 @@ public:
     // Ownership of the session transfers to the dispatcher. The dispatcher
     // runs the session to EOF on a worker thread and destroys it.
     virtual void enqueue(std::unique_ptr<ISession> session) = 0;
+
+    // Render a JSON snapshot of the dispatcher's operational metrics
+    // (sessions enqueued/completed/failed, latency histogram, etc.).
+    // Used by the HttpServer /metrics endpoint.
+    virtual std::string renderMetricsSnapshot() const = 0;
 };
 
 } // namespace atomdb

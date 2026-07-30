@@ -14,6 +14,9 @@ public:
     void enqueue(std::unique_ptr<atomdb::ISession> /*session*/) override {
         // Do nothing in test
     }
+    std::string renderMetricsSnapshot() const override {
+        return R"({"engine":{"sessionsEnqueued":0,"sessionsCompleted":0}})";
+    }
 };
 
 using namespace atomdb;
