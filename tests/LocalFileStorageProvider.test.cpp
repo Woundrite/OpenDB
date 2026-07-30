@@ -516,3 +516,110 @@ TEST(LocalFile_CrashDurable_Data_Persists_Across_Reopen) {
     }
     cleanup("build/test_localfile_crash.db");
 }
+
+// ---------------------------------------------------------------------------
+// Phase 5 Item 16: backupTo() — point-in-time snapshot
+// ---------------------------------------------------------------------------
+
+TEST(LocalFile_Backup_Creates_Independent_Copy) {
+    cleanup("build/test_localfile_backup_src.db");
+    cleanup("build/test_localfile_backup_dst.db");
+
+    {
+        LocalFileStorageProvider p;
+        EXPECT(p.open("file://build/test_localfile_backup_src.db").isSentinel());
+        Schema users = makeUsersSchema();
+        EXPECT(p.createTable(users).isSentinel());
+
+        TransactionManager txnm;
+        TxnId t = txnm.beginTxn();
+        for (int i = 1; i <= 3; ++i) {
+            Tuple r = Tuple::make({
+                {"_id", Value::int64(i)},
+                {"name", Value::text(std::string("name") + std::to_string(i))},
+                {"age",  Value::int32(20 + i)},
+            });
+            EXPECT(p.put(t, "users", Value::int64(i), r).isSentinel());
+        }
+        txnm.commitTxn(t);
+        EXPECT(p.commit(t, txnm.visibleSeq()).isSentinel());
+
+        // Snapshot to a separate file.
+        EXPECT(p.backupTo("file://build/test_localfile_backup_dst.db").isSentinel());
+
+        // The source is still open and usable.
+        EXPECT(p.isOpen());
+
+        EXPECT(p.close().isSentinel());
+    }
+    // Open the backup and verify it is a faithful snapshot.
+    {
+        LocalFileStorageProvider q;
+        EXPECT(q.open("file://build/test_localfile_backup_dst.db").isSentinel());
+        EXPECT(q.tables().size() == std::size_t{1});
+        EXPECT_EQ(q.rowCount("users"), std::size_t{3});
+        for (int i = 1; i <= 3; ++i) {
+            auto got = q.get(TxnId{99}, "users", Value::int64(i));
+            EXPECT(got.has_value());
+        }
+        EXPECT(q.close().isSentinel());
+    }
+
+    cleanup("build/test_localfile_backup_src.db");
+    cleanup("build/test_localfile_backup_dst.db");
+}
+
+TEST(LocalFile_Backup_Fails_When_Not_Open) {
+    LocalFileStorageProvider p;
+    auto err = p.backupTo("file://build/test_localfile_backup_noop.db");
+    // ponytail: error is non-sentinel — "provider not open".
+    EXPECT(!err.isSentinel());
+}
+
+TEST(LocalFile_Backup_Provider_Remains_Open_And_Modifiable) {
+    // After backupTo, the provider must still be open, and writes must work.
+    cleanup("build/test_localfile_backup_live.db");
+
+    LocalFileStorageProvider p;
+    EXPECT(p.open("file://build/test_localfile_backup_live.db").isSentinel());
+    Schema users = makeUsersSchema();
+    EXPECT(p.createTable(users).isSentinel());
+
+    TransactionManager txnm;
+    TxnId t = txnm.beginTxn();
+    Tuple r = Tuple::make({{"_id", Value::int64(1)}, {"name", Value::text("a")}, {"age", Value::int32(1)}});
+    EXPECT(p.put(t, "users", Value::int64(1), r).isSentinel());
+    txnm.commitTxn(t);
+    EXPECT(p.commit(t, txnm.visibleSeq()).isSentinel());
+
+    EXPECT(p.backupTo("file://build/test_localfile_backup_live_dst.db").isSentinel());
+    EXPECT(p.isOpen());
+
+    // Insert more — these changes must NOT appear in the backup.
+    TxnId t2 = txnm.beginTxn();
+    Tuple r2 = Tuple::make({{"_id", Value::int64(2)}, {"name", Value::text("b")}, {"age", Value::int32(2)}});
+    EXPECT(p.put(t2, "users", Value::int64(2), r2).isSentinel());
+    txnm.commitTxn(t2);
+    EXPECT(p.commit(t2, txnm.visibleSeq()).isSentinel());
+
+    EXPECT_EQ(p.rowCount("users"), std::size_t{2});
+
+    // Open the backup and confirm only the original row is there.
+    LocalFileStorageProvider q;
+    EXPECT(q.open("file://build/test_localfile_backup_live_dst.db").isSentinel());
+    EXPECT_EQ(q.rowCount("users"), std::size_t{1});
+    EXPECT(q.close().isSentinel());
+
+    EXPECT(p.close().isSentinel());
+
+    cleanup("build/test_localfile_backup_live.db");
+    cleanup("build/test_localfile_backup_live_dst.db");
+}
+
+TEST(LocalFile_Path_Returns_Stripped_FileURI) {
+    LocalFileStorageProvider p;
+    EXPECT(p.open("file://build/test_localfile_path.db").isSentinel());
+    EXPECT(p.path() == std::string{"build/test_localfile_path.db"});
+    EXPECT(p.close().isSentinel());
+    cleanup("build/test_localfile_path.db");
+}

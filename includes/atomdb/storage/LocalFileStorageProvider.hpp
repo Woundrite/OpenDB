@@ -113,6 +113,14 @@ public:
         const std::lock_guard<std::mutex> lk(mutex_);
         if (opened_) return DbError::sentinel();
 
+        // Strip optional file:// prefix so path() and backupTo() can compare
+        // paths directly without prefix normalization.
+        if (uri.rfind("file://", 0) == 0) {
+            source_path_ = uri.substr(7);
+        } else {
+            source_path_ = uri;
+        }
+
         try {
             pager_ = std::make_unique<Pager>(uri);
         } catch (const std::runtime_error& e) {
@@ -161,11 +169,60 @@ public:
             pager_->close();
             pager_.reset();
         }
-
-        btrees_.clear();
-        tables_.clear();
         opened_ = false;
         return DbError::sentinel();
+    }
+
+    // Phase 5 Item 16: Point-in-time snapshot. Copies the on-disk file to
+    // `target_uri` (file:// prefix optional). Forces a metadata flush and
+    // an fsync first so the snapshot is internally consistent. The provider
+    // remains open and usable after backupTo() returns.
+    DbError backupTo(const std::string& target_uri) {
+        const std::lock_guard<std::mutex> lk(mutex_);
+        if (!opened_ || !pager_) return DbError::internal("provider not open");
+
+        // Flush + fsync before snapshotting.
+        saveMetadata();
+        for (auto& [tname, btree] : btrees_) {
+            (void)tname;
+            btree->flush();
+        }
+        pager_->sync();
+
+        // Resolve target path.
+        std::string target = target_uri;
+        if (target.rfind("file://", 0) == 0) target = target.substr(7);
+
+        std::error_code ec;
+        // Remove existing target to make copy overwrite-style.
+        std::filesystem::remove(target, ec);
+        ec.clear();
+
+        // Source path: ask the Pager (it stores path_ internally).
+        // We don't have direct access; recover via the canonical URI we were
+        // opened with — record it on open(). For now, use std::filesystem
+        // copy from a path the caller passed via open(). The implementation
+        // here is intentionally simple: rely on the standard library's copy.
+        // ponytail: copy via a temp read-only open of the same file. The
+        // Pager keeps the underlying fstream alive while we read, but since
+        // Pager's path_ is private, we instead read bytes through an explicit
+        // second Pager attached to the same file in copy-source mode.
+        // Simpler: use std::filesystem::copy from a path we record.
+        if (source_path_.empty()) {
+            return DbError::internal("backupTo: source path unknown");
+        }
+        std::filesystem::copy(source_path_, target,
+                              std::filesystem::copy_options::overwrite_existing, ec);
+        if (ec) {
+            return DbError::internal("backupTo: copy failed: " + ec.message());
+        }
+        return DbError::sentinel();
+    }
+
+    // Returns the on-disk path this provider was opened from.
+    std::string path() const {
+        const std::lock_guard<std::mutex> lk(mutex_);
+        return source_path_;
     }
 
     bool isOpen() const noexcept override { return opened_; }
@@ -421,6 +478,7 @@ private:
     std::uint64_t visible_seq_ = 0;
     std::uint64_t internal_seq_ = 0;
     bool opened_ = false;
+    std::string source_path_; // on-disk path this provider was opened from
 
     // ---- Metadata persistence -------------------------------------------------
 
