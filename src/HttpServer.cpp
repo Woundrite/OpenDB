@@ -202,7 +202,19 @@ void HttpServer::onClientRequest(SocketHandle fd, const std::string& request) {
     } else if (method == "GET" && (path == "/health" || path == "/healthz")) {
         sendResponse(fd, 200, "OK", "{\"status\":\"ok\"}");
     } else if (method == "GET" && path == "/metrics") {
-        sendResponse(fd, 200, "OK", renderStatsSnapshot());
+        // Phase 5 Item 15: emit BOTH the HttpServer's own Stats counters
+        // (HTTP-level) AND the EngineDispatcher's Metrics (engine-level)
+        // as a single merged JSON object. Operators can scrape one
+        // endpoint for both layers.
+        std::string body = renderStatsSnapshot();
+        if (dispatcher_) {
+            // Strip the trailing '}' from the HttpServer snapshot and
+            // splice in the engine metrics.
+            body.pop_back();
+            body += ",\"engine\":";
+            body += dispatcher_->renderMetricsSnapshot();
+        }
+        sendResponse(fd, 200, "OK", body);
     } else if (method == "GET" && path == "/status") {
         sendResponse(fd, 200, "OK",
             "{\"connections\":" + std::to_string(stats_.connectionsActive.load()) +
