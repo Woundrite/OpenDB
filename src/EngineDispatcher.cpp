@@ -10,7 +10,9 @@
 #include "atomdb/types/Result.hpp"
 #include "atomdb/types/DbError.hpp"
 #include "atomdb/types/TxnId.hpp"
+#include <chrono>
 #include <iostream>
+#include <sstream>
 
 namespace atomdb {
 
@@ -39,13 +41,17 @@ EngineDispatcher::~EngineDispatcher() {
 void EngineDispatcher::enqueue(std::unique_ptr<ISession> session) {
     if (!running_.load() || shuttingDown_.load()) {
         // Dispatcher not running or shutting down — reject session
-        if (session) session->present(DbError::internal("dispatcher not accepting sessions"));
+        if (session) {
+            session->present(DbError::internal("dispatcher not accepting sessions"));
+            metrics_.sessionsFailed.fetch_add(1);
+        }
         return;
     }
     {
         std::lock_guard<std::mutex> lk(queueMu_);
         queue_.push(std::move(session));
     }
+    metrics_.sessionsEnqueued.fetch_add(1);
     queueSem_.release();
 }
 
@@ -96,11 +102,21 @@ void EngineDispatcher::workerLoop(std::size_t workerId) {
 }
 
 void EngineDispatcher::runSession(std::unique_ptr<ISession> session) {
+    // Phase 5 Item 15: track per-session latency from enqueue to close.
+    auto t0 = std::chrono::steady_clock::now();
+    bool ok = true;
+
     // Get engine from storage provider
     IStorageEngine* engine = storage_->engine();
     if (!engine) {
         session->present(DbError::internal("no engine available"));
         session->close();
+        ok = false;
+        metrics_.sessionsFailed.fetch_add(1);
+        auto t1 = std::chrono::steady_clock::now();
+        auto micros = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count());
+        recordLatency(micros);
         return;
     }
 
@@ -236,6 +252,52 @@ void EngineDispatcher::runSession(std::unique_ptr<ISession> session) {
 
     // Close session transport
     session->close();
+
+    // Phase 5 Item 15: finalize metrics.
+    auto t1 = std::chrono::steady_clock::now();
+    auto micros = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count());
+    if (ok) {
+        metrics_.sessionsCompleted.fetch_add(1);
+    } else {
+        metrics_.sessionsFailed.fetch_add(1);
+    }
+    recordLatency(micros);
+}
+
+void EngineDispatcher::recordLatency(std::uint64_t micros) {
+    metrics_.totalLatencyMicros.fetch_add(micros);
+    // Update max via CAS loop (cheaper than taking a mutex).
+    std::uint64_t cur = metrics_.maxLatencyMicros.load();
+    while (micros > cur) {
+        if (metrics_.maxLatencyMicros.compare_exchange_weak(cur, micros)) break;
+    }
+    // Bucket into 2^i bands. Bucket index = floor(log2(micros)) capped at kLatencyBuckets-1.
+    std::size_t idx = 0;
+    std::uint64_t v = micros;
+    while (v > 1 && idx + 1 < Metrics::kLatencyBuckets) { v >>= 1; ++idx; }
+    if (idx >= Metrics::kLatencyBuckets) idx = Metrics::kLatencyBuckets - 1;
+    metrics_.latencyBuckets[idx].fetch_add(1);
+}
+
+std::string EngineDispatcher::renderMetricsSnapshot() const {
+    std::ostringstream os;
+    os << "{"
+       << "\"sessions_enqueued\":" << metrics_.sessionsEnqueued.load()
+       << ",\"sessions_completed\":" << metrics_.sessionsCompleted.load()
+       << ",\"sessions_failed\":" << metrics_.sessionsFailed.load()
+       << ",\"total_latency_us\":" << metrics_.totalLatencyMicros.load()
+       << ",\"max_latency_us\":" << metrics_.maxLatencyMicros.load()
+       << ",\"latency_buckets\":[";
+    for (std::size_t i = 0; i < Metrics::kLatencyBuckets; ++i) {
+        if (i) os << ",";
+        os << metrics_.latencyBuckets[i].load();
+    }
+    os << "]"
+       << ",\"worker_count\":" << workers_.size()
+       << ",\"pending_count\":" << pendingCount()
+       << "}";
+    return os.str();
 }
 
 } // namespace atomdb

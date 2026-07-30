@@ -48,12 +48,42 @@ public:
     std::size_t workerCount() const noexcept;
     std::size_t pendingCount() const;
 
+    // Phase 5 Item 15: operational metrics. Atomic counters updated by
+    // workers; readable by any thread (the HttpServer's /metrics endpoint
+    // renders a snapshot). Cheap enough to update on every session.
+    struct Metrics {
+        std::atomic<std::uint64_t> sessionsEnqueued{0};
+        std::atomic<std::uint64_t> sessionsCompleted{0};
+        std::atomic<std::uint64_t> sessionsFailed{0};
+        std::atomic<std::uint64_t> totalLatencyMicros{0};
+        std::atomic<std::uint64_t> maxLatencyMicros{0};
+        // ponytail: a tiny latency histogram. We bucket every measured
+        // session into a power-of-two band: <1us, <2us, <4us, ... <16ms,
+        // and a saturating ">=16ms" bucket. 18 buckets is plenty for
+        // operator-facing dashboards.
+        static constexpr std::size_t kLatencyBuckets = 18;
+        std::atomic<std::uint64_t> latencyBuckets[kLatencyBuckets]{};
+
+        Metrics() {
+            for (auto& b : latencyBuckets) b.store(0);
+        }
+        Metrics(const Metrics&) = delete;
+        Metrics& operator=(const Metrics&) = delete;
+    };
+    const Metrics& metrics() const noexcept { return metrics_; }
+
+    // Phase 5 Item 15: render a JSON snapshot of the metrics for /metrics.
+    std::string renderMetricsSnapshot() const;
+
 private:
     // Worker thread main loop
     void workerLoop(std::size_t workerId);
 
     // Execute a single session to completion
     void runSession(std::unique_ptr<ISession> session);
+
+    // Phase 5 Item 15: record one session's latency into the histogram.
+    void recordLatency(std::uint64_t micros);
 
     // Core components (non-owning)
     IStorageProvider* storage_;
@@ -71,6 +101,8 @@ private:
     // State
     std::atomic<bool> running_{false};
     std::atomic<bool> shuttingDown_{false};
+
+    Metrics metrics_;
 };
 
 } // namespace atomdb
