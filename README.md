@@ -2,41 +2,46 @@
 
 A C++23 database engine implementing the layered architecture described in
 `.swarm/spec.md`: a **fixed non-pluggable core** (transaction management,
-table-level locking, deadlock detection, command dispatch) with **pluggable
-edges** (the front-end `ICommandSource` and the back-end `IStorageEngine`).
+locking, deadlock detection, command dispatch) with **pluggable edges**
+(the front-end `ICommandSource` and the back-end `IStorageProvider`).
 
-This build lands the **core types + core engine + in-memory storage + trivial
-REPL + end-to-end smoke test** from the spec §7 roadmap milestones 1–5.
+This build lands milestones 1–5 from the spec §7 roadmap plus most of
+Phase 5 production-readiness work (HTTP server, row-level locks,
+column-level DEFAULTs, sharded recovery, point-in-time backup,
+operational metrics, SQL features, free-list reuse, concurrency stress).
 
 ## Architecture
 
 ```
   ┌───────────────────  front ends (plugins)  ────────────────────┐
-  │  SQL parser (planned)  REPL gateway (implemented)             │
+  │  HttpApi  SqlParser  ReplSource                                │
+  │  (REST)   (SQL)      (toy REPL)                                │
   └───────────────────┬─────────────────────────────────────────────┘
-                      ▼
-                ICommandSource          ← universal pull contract
-                      ▼
+                       ▼
+                 ICommandSource          ← universal pull contract
+                       ▼
   ┌───────────────  CORE ENGINE ──────────────── fixed, not a plugin
-  │  EngineLoop  TransactionManager  LockManager  DeadlockDetector  │
+  │  EngineLoop  EngineDispatcher (thread pool)                     │
+  │  TransactionManager  LockManager  DeadlockDetector              │
   └───────────────────────────────────────────────────┬────────────┘
-                      ▼
-                IStorageEngine            ← universal back-end contract
-                      ▼
-       InMemoryStorageEngine (v0.1)            ← versioned records
+                       ▼
+                 IStorageEngine / IStorageProvider  ← universal back-end
+                       ▼
+        LocalFileStorageEngine  InMemoryStorageEngine  CachingStorageEngine
+        ShardedStorageProvider  (composition over inheritance)
 ```
 
 The core has zero dependencies on the edges; the edges can substitute freely.
 
 ## Building
 
-The Makefile is **cross-platform** with auto-detection for `g++`, `clang++`,
-and `cl` per spec §6.3. Strict warnings (`-Wall -Wextra -Wpedantic -Werror`)
-and `-std=c++2b` (C++23).
+The build script is **cross-platform** with auto-detection for `g++`,
+`clang++`, and `cl` per spec §6.3. Strict warnings
+(`-Wall -Wextra -Wpedantic -Werror`) and `-std=c++2b` (C++23).
 
 ```sh
 make           # build/atomdb (REPL) + build/test_runner (unit tests)
-make test      # 46 unit tests across types, core, storage, engine loop, REPL
+make test      # 186 unit tests across types, core, storage, engine loop, REPL, ...
 make smoke     # INSERT -> SELECT round trip in the REPL (milestone 5)
 make run       # launches the REPL with stdin/stdout attached
 make clean     # rm -rf build/
@@ -44,19 +49,35 @@ make clean     # rm -rf build/
 
 ### PowerShell / Windows
 
-If `make` is unavailable or the bash/MinGW recipes mis-shell through `cmd.exe`,
-use the equivalent PowerShell helper:
+If `make` is unavailable, use the equivalent PowerShell helper:
 
 ```powershell
 ./build.ps1 build    # build/atomdb
-./build.ps1 test     # 46/46 tests
+./build.ps1 test     # 186/186 tests
 ./build.ps1 smoke    # INSERT -> SELECT round trip
 ./build.ps1 clean
 ```
 
 ## Usage
 
-After `make` (or `./build.ps1 build`):
+### SQL via the HttpApi
+
+```sh
+./build/atomdb --http-port 8080 &
+curl -X POST http://localhost:8080/query \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"query","sql":"CREATE TABLE users(id INT PRIMARY KEY, name TEXT, age INT)"}'
+curl -X POST http://localhost:8080/query \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"query","sql":"INSERT INTO users VALUES (1, '\''nikhil'\'', 30)"}'
+curl -X POST http://localhost:8080/query \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"query","sql":"SELECT * FROM users WHERE age > 25 ORDER BY name ASC LIMIT 10"}'
+```
+
+### Trivial REPL
+
+After `make`:
 
 ```text
 $ ./build/atomdb
@@ -67,48 +88,35 @@ SELECT users
 [OK] | key | name   | age | _id |
     |-----+--------+-----+-----|
     | 1   | nikhil | 30  | 1   |
-SELECT users WHERE name=nikhil
-[OK] | key | name   | age | _id |
-    | ...                              |
 EXIT
 bye
 ```
 
-### Trivial REPL semantics
-
-| Input                                              | Behavior                              |
-| -------------------------------------------------- | -------------------------------------- |
-| `INSERT <table> {<col>:<val>,...}`                 | Inserts a row (auto-id if absent)      |
-| `SELECT <table>`                                   | Full table scan                         |
-| `SELECT <table> WHERE <col>=<val>`                 | Predicate filter using `=`             |
-| `EXIT`                                             | End-of-input                           |
-
 Value parsing: integer literals → `Int64`; `"..."`/`'...'` → `Text`; `true`/`false` → `Bool`; `null` → `Null`.
-
-### What's stubbed in v0.1 (per spec §5.4)
-
-| Command         | Behavior                          |
-| --------------- | --------------------------------- |
-| UPDATE          | Returns `DbError::NotSupported`   |
-| DELETE          | Returns `DbError::NotSupported`   |
-
-Storage engine INTERNALS (put, remove, scan) already implement the
-append-only versioned-records scheme — only the core engine surface for UPDATE
-and DELETE is deferred to a future milestone.
 
 ## Test summary
 
-46 tests across:
+186 tests across:
 
 | Suite          | Count | Notes                                                   |
 | -------------- | ----: | -------------------------------------------------------- |
-| Value          |     6 | Tagged union, ordering across/within tags                |
+| Value          |    13 | Tagged union, ordering across/within tags                |
 | Tuple          |     6 | O(1) name lookup, order-sensitive equality              |
 | Predicate      |     8 | AND/OR short-circuit, deep clone, missing-column false  |
-| Core           |    16 | TX manager, lock matrix (8 cells), concurrent blocking, deadlock detection |
-| Storage        |     6 | In-memory append-only versioned records, auto-id, tombstones |
-| Engine loop    |     4 | End-to-end dispatch, UPDATE stubbed, REPL parsing       |
-| **TOTAL**      | **46** | All pass under g++ 14.2.0 C++23 strict warnings         |
+| Core           |    24 | TX manager, lock matrix, row-level locks, deadlock       |
+| Storage        |     8 | Append-only versioned records, MVCC visible_seq cutoff   |
+| Pager          |     8 | Free-list push/pop, LIFO order, survives reopen         |
+| BTree          |    14 | Put/remove, split, ordered scan, MVCC                   |
+| EngineLoop     |     8 | End-to-end dispatch, ORDER BY/LIMIT/OFFSET              |
+| LocalFile      |    18 | Persists across reopen, Backup snapshots                |
+| Sharded        |    16 | Hash/Range/List partitioning, recovery                   |
+| Caching        |     3 | Cache hit/miss                                          |
+| HttpApi        |    10 | JSON encoding, DEFAULT materialization, OpenAPI-ish     |
+| HttpServer     |     6 | Multi-threaded async server lifecycle                    |
+| JsonEncoder    |     7 | Base64/ISO-8601/array-of-arrays                          |
+| SqlParser      |    34 | DDL/DML/TXN, DEFAULT, WHERE/ORDER BY/LIMIT/OFFSET        |
+| Stress         |     3 | 8-thread INSERT, 4-thread REMOVE, 6-thread reads         |
+| **TOTAL**      | **186** | All pass under g++ 14.2.0 C++23 strict warnings        |
 
 The deadlock detector test uses real concurrent blocking threads to construct
 a genuine two-txn 2-cycle and verify the origin txn is reported as the victim
@@ -121,4 +129,7 @@ a genuine two-txn 2-cycle and verify the origin txn is reported as the victim
 | INSERT key strategy (Q1)       | **Both** — `_id` column if provided, otherwise engine auto-assigns Int64     |
 | Mutation semantics (Q2)        | **Append-only versioned records** — DELETE writes a tombstone                |
 | Lock conflict behavior (Q3)    | **Block on wait queue** — `acquire()` waits on a condition_variable          |
-| Scope of build                 | **Milestones 1–5** end-to-end smoke                                          |
+| Storage provider vs engine     | **Composition**: provider owns engine (per spec §4.3)                         |
+| WAL / CrashDurable             | **Phase 5**: v0.1 has `commit() → saveMetadata() → pager.sync()` barrier     |
+| Concurrency                    | **Multi-threaded**: EngineDispatcher with worker pool; row-level locks        |
+| HTTP server                    | **Async + multi-threaded**: 1 accept thread, N io threads with select loop    |
