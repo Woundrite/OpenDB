@@ -64,6 +64,13 @@ public:
     // Get the root page id (persisted in schema/meta).
     Pager::PageId rootPageId() const noexcept { return root_page_id_; }
 
+    // Phase 6.4: walk every page in this BTree and push it onto the Pager's
+    // free list. Called by LocalFileStorageProvider::dropTable so the pages
+    // can be reused by subsequent tables instead of leaking forever.
+    // After this returns, the BTree must not be used (root_page_id_ is left
+    // at its old value; the caller is expected to destroy the BTree).
+    void freeAllPages();
+
     // Point lookup: find newest version of `key` visible to `txn` at `visible_seq`.
     // If `txn` has staged a version (commitSeq == 0 && txnId == txn), it wins.
     // Otherwise, return newest committed version with commitSeq <= visible_seq.

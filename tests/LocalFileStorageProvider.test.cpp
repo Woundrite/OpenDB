@@ -1,4 +1,4 @@
-#include "test_framework.hpp"
+﻿#include "test_framework.hpp"
 
 #include <cstdio>
 #include <filesystem>
@@ -108,7 +108,7 @@ TEST(LocalFile_CreateTable_Rejects_Unsupported_Type) {
     cleanup("build/test_localfile_reject.db");
     LocalFileStorageProvider p;
     EXPECT(p.open("file://build/test_localfile_reject.db").isSentinel());
-    // ValueType::Null column is the only one we mark unsupported. Hmm — actually
+    // ValueType::Null column is the only one we mark unsupported. Hmm â€” actually
     // we accept Null too. Pick one we DON'T support: there isn't one in the v1
     // vocabulary. So this test verifies the accept path works.
     Schema s = makeUsersSchema();
@@ -194,7 +194,7 @@ TEST(LocalFile_Auto_Key_Assigns_Int64) {
 // ponytail: 10 rows < one-leaf capacity; bound here so we never trigger the
 // BTree split path during the LocalFile persistence test. Split correctness
 // is already covered by BTree_Put_Many_Rows_Triggers_Splits; this test verifies
-// the LocalFile layer can drive a multi‑row put+commit+scan.
+// the LocalFile layer can drive a multiâ€‘row put+commit+scan.
 TEST(LocalFile_Put_Many_Rows_Scan_In_Order) {
     cleanup("build/test_localfile_scan.db");
     LocalFileStorageProvider p;
@@ -374,7 +374,7 @@ TEST(LocalFile_Overwrite_Persists_Last_Visible_Value) {
         EXPECT(p.open("file://build/test_localfile_overwrite.db").isSentinel());
         auto got = p.get(TxnId{99}, "users", Value::int64(1));
         EXPECT(got.has_value());
-        // After overwrite, the user should be "alice2" age 21 — but the append-only
+        // After overwrite, the user should be "alice2" age 21 â€” but the append-only
         // model keeps the staged version too. The get() returns the newest visible
         // committed version, which is the overwrite.
         EXPECT_EQ(got->get("age").asInt32(), 21);
@@ -401,7 +401,7 @@ TEST(LocalFile_Abort_Leaves_Table_Intact_For_Other_Txns) {
     txnm.abortTxn(t2);
     EXPECT(p.abort(t2).isSentinel());
 
-    // t2 is aborted — staged version is dead. Other reader sees original.
+    // t2 is aborted â€” staged version is dead. Other reader sees original.
     auto got = p.get(TxnId{99}, "users", Value::int64(1));
     EXPECT(got.has_value());
     EXPECT(got->get("name").asText() == "x");
@@ -460,7 +460,7 @@ TEST(LocalFile_Comment_Box_Type_Blob_Persists) {
 }
 
 TEST(LocalFile_CrashDurable_Data_Persists_Across_Reopen) {
-    // Phase 5 Item 2: the `CrashDurable` capability bit is honest — data
+    // Phase 5 Item 2: the `CrashDurable` capability bit is honest â€” data
     // committed before close() must be readable after a fresh open() with no
     // crash midway. We synthesize "process restart" via scope boundary.
     cleanup("build/test_localfile_crash.db");
@@ -495,7 +495,7 @@ TEST(LocalFile_CrashDurable_Data_Persists_Across_Reopen) {
 
         EXPECT(p.close().isSentinel());
     }
-    // "process restart" — fresh provider, fresh tables/BTree, fresh visible_seq_.
+    // "process restart" â€” fresh provider, fresh tables/BTree, fresh visible_seq_.
     {
         LocalFileStorageProvider p;
         EXPECT(p.open("file://build/test_localfile_crash.db").isSentinel());
@@ -518,7 +518,7 @@ TEST(LocalFile_CrashDurable_Data_Persists_Across_Reopen) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 5 Item 16: backupTo() — point-in-time snapshot
+// Phase 5 Item 16: backupTo() â€” point-in-time snapshot
 // ---------------------------------------------------------------------------
 
 TEST(LocalFile_Backup_Creates_Independent_Copy) {
@@ -572,7 +572,7 @@ TEST(LocalFile_Backup_Creates_Independent_Copy) {
 TEST(LocalFile_Backup_Fails_When_Not_Open) {
     LocalFileStorageProvider p;
     auto err = p.backupTo("file://build/test_localfile_backup_noop.db");
-    // ponytail: error is non-sentinel — "provider not open".
+    // ponytail: error is non-sentinel â€” "provider not open".
     EXPECT(!err.isSentinel());
 }
 
@@ -595,7 +595,7 @@ TEST(LocalFile_Backup_Provider_Remains_Open_And_Modifiable) {
     EXPECT(p.backupTo("file://build/test_localfile_backup_live_dst.db").isSentinel());
     EXPECT(p.isOpen());
 
-    // Insert more — these changes must NOT appear in the backup.
+    // Insert more â€” these changes must NOT appear in the backup.
     TxnId t2 = txnm.beginTxn();
     Tuple r2 = Tuple::make({{"_id", Value::int64(2)}, {"name", Value::text("b")}, {"age", Value::int32(2)}});
     EXPECT(p.put(t2, "users", Value::int64(2), r2).isSentinel());
@@ -623,3 +623,112 @@ TEST(LocalFile_Path_Returns_Stripped_FileURI) {
     EXPECT(p.close().isSentinel());
     cleanup("build/test_localfile_path.db");
 }
+
+// ---------------------------------------------------------------------------
+// Phase 6.4: BTree per-page recycling.
+// dropTable walks the BTree and calls Pager::freePage on every node. The
+// free-list counter exposed via freePageCount() should rise accordingly.
+// ---------------------------------------------------------------------------
+
+TEST(LocalFile_DropTable_Frees_Pages_To_Pager) {
+    cleanup("build/test_localfile_drop_pages.db");
+    LocalFileStorageProvider p;
+    EXPECT(p.open("file://build/test_localfile_drop_pages.db").isSentinel());
+
+    Schema s = makeUsersSchema();
+    EXPECT(p.createTable(s).isSentinel());
+
+    // Insert some rows to make the BTree allocate pages.
+    auto* engine = p.engine();
+    TxnId t{1};
+    for (int i = 1; i <= 50; ++i) {
+        Tuple row = Tuple::make({{"_id", Value::int64(i)},
+                                  {"name", Value::text("u" + std::to_string(i))}});
+        EXPECT(engine->put(t, "users", Value::int64(i), row).isSentinel());
+    }
+    EXPECT(engine->prepare(t).isSentinel());
+    EXPECT(engine->commit(t).isSentinel());
+
+    const std::size_t beforeFree = p.freePageCount();
+    EXPECT(p.dropTable("users").isSentinel());
+    const std::size_t afterFree = p.freePageCount();
+    EXPECT(afterFree > beforeFree);
+
+    EXPECT(p.close().isSentinel());
+    cleanup("build/test_localfile_drop_pages.db");
+}
+
+TEST(LocalFile_DropTable_Recycled_Pages_Are_Reused) {
+    cleanup("build/test_localfile_drop_reuse.db");
+    LocalFileStorageProvider p;
+    EXPECT(p.open("file://build/test_localfile_drop_reuse.db").isSentinel());
+
+    Schema s = makeUsersSchema();
+    EXPECT(p.createTable(s).isSentinel());
+    auto* engine = p.engine();
+    TxnId t{1};
+    for (int i = 1; i <= 50; ++i) {
+        Tuple row = Tuple::make({{"_id", Value::int64(i)},
+                                  {"name", Value::text("u" + std::to_string(i))}});
+        EXPECT(engine->put(t, "users", Value::int64(i), row).isSentinel());
+    }
+    EXPECT(engine->prepare(t).isSentinel());
+    EXPECT(engine->commit(t).isSentinel());
+
+    const std::size_t beforePageCount = p.freePageCount();
+    EXPECT(p.dropTable("users").isSentinel());
+    const std::size_t freedPages = p.freePageCount();
+    EXPECT(freedPages > beforePageCount);
+
+    // Recreate the table; allocatePage should pull from the free-list.
+    Schema s2 = makeUsersSchema();
+    EXPECT(p.createTable(s2).isSentinel());
+    EXPECT(p.freePageCount() < freedPages);
+
+    EXPECT(p.close().isSentinel());
+    cleanup("build/test_localfile_drop_reuse.db");
+}
+
+TEST(LocalFile_DropTable_FreePages_Survive_Reopen) {
+    cleanup("build/test_localfile_drop_reopen.db");
+    {
+        LocalFileStorageProvider p;
+        EXPECT(p.open("file://build/test_localfile_drop_reopen.db").isSentinel());
+        Schema s = makeUsersSchema();
+        EXPECT(p.createTable(s).isSentinel());
+        auto* engine = p.engine();
+        TxnId t{1};
+        for (int i = 1; i <= 30; ++i) {
+            Tuple row = Tuple::make({{"_id", Value::int64(i)},
+                                      {"name", Value::text("u" + std::to_string(i))}});
+            EXPECT(engine->put(t, "users", Value::int64(i), row).isSentinel());
+        }
+        EXPECT(engine->prepare(t).isSentinel());
+        EXPECT(engine->commit(t).isSentinel());
+        EXPECT(p.dropTable("users").isSentinel());
+        EXPECT(p.close().isSentinel());
+    }
+    // Reopen and verify the free-list persisted.
+    LocalFileStorageProvider p;
+    EXPECT(p.open("file://build/test_localfile_drop_reopen.db").isSentinel());
+    EXPECT(p.freePageCount() > 0);
+    EXPECT(p.close().isSentinel());
+    cleanup("build/test_localfile_drop_reopen.db");
+}
+
+TEST(LocalFile_DropTable_Empty_Table_Frees_At_Least_One_Page) {
+    cleanup("build/test_localfile_drop_empty.db");
+    LocalFileStorageProvider p;
+    EXPECT(p.open("file://build/test_localfile_drop_empty.db").isSentinel());
+
+    Schema s = makeUsersSchema();
+    EXPECT(p.createTable(s).isSentinel());
+    const std::size_t beforeFree = p.freePageCount();
+    EXPECT(p.dropTable("users").isSentinel());
+    // Even an empty BTree has a root page; dropping it must free at least 1.
+    EXPECT(p.freePageCount() > beforeFree);
+
+    EXPECT(p.close().isSentinel());
+    cleanup("build/test_localfile_drop_empty.db");
+}
+

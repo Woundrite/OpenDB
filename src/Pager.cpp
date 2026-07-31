@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstdio>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace atomdb {
 
@@ -163,6 +164,24 @@ void Pager::freePage(PageId id) {
     writeRaw(id, page);
     header_.freeHead = id;
     flushHeader();
+}
+
+// Phase 6.4: walk the free-list chain. Each freed page stores the next
+// free-page id in its first 4 bytes. We walk until we hit INVALID_PAGE
+// (or a cycle, defended against). Tests use this to verify dropTable
+// actually returns pages to the pool.
+std::size_t Pager::freeListSize() {
+    std::size_t n = 0;
+    PageId cur = header_.freeHead;
+    std::unordered_set<PageId> seen;
+    while (cur != INVALID_PAGE && cur != 0 && cur < header_.pageCount) {
+        if (!seen.insert(cur).second) break; // cycle defense
+        ++n;
+        std::vector<std::uint8_t> buf(PAGE_SIZE);
+        if (!readRaw(cur, buf)) break;
+        std::memcpy(&cur, buf.data(), 4);
+    }
+    return n;
 }
 
 bool Pager::loadHeader() {

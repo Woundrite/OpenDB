@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
+#include <unordered_set>
+#include <vector>
 
 namespace atomdb {
 
@@ -540,6 +542,37 @@ void BTree::scanAll(AllEntriesCallback cb) {
 void BTree::flush() {
     // All writes go through pager immediately; flush the file.
     pager_.sync();
+}
+
+// ---- freeAllPages (Phase 6.4) ---------------------------------------------
+
+void BTree::freeAllPages() {
+    // Iterative DFS over the BTree from root_page_id_. Internal nodes carry
+    // their children by PageId; leaves are linked by right_sibling so the DFS
+    // from the root will eventually visit every leaf without needing the
+    // sibling chain. Both kinds are freed; the walk is bounded by the page
+    // count of the tree.
+    if (root_page_id_ == 0) return;
+    std::unordered_set<Pager::PageId> visited;
+    std::vector<Pager::PageId> stack;
+    stack.push_back(root_page_id_);
+    while (!stack.empty()) {
+        Pager::PageId id = stack.back();
+        stack.pop_back();
+        if (id == 0) continue;
+        if (!visited.insert(id).second) continue;
+        NodeHeader hdr;
+        std::vector<InternalEntry> internal;
+        std::vector<LeafEntry> leaf;
+        loadNode(id, hdr, internal, leaf);
+        if (hdr.type == NodeType::Internal) {
+            for (const auto& e : internal) {
+                if (e.child != 0) stack.push_back(e.child);
+            }
+        }
+        pager_.freePage(id);
+    }
+    root_page_id_ = 0;
 }
 
 } // namespace atomdb

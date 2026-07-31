@@ -271,8 +271,13 @@ public:
         if (it == tables_.end()) {
             return DbError::notFound("table '" + name + "' not found");
         }
-        // Free pages? For v1 we just remove from the registry. The pages remain
-        // allocated but unreferenced (could be garbage-collected later).
+        // Phase 6.4: free the BTree's pages back to the Pager's free-list
+        // before erasing the registry entry. Otherwise the dropped table's
+        // pages leaked until the file was deleted.
+        auto bt_it = btrees_.find(name);
+        if (bt_it != btrees_.end()) {
+            bt_it->second->freeAllPages();
+        }
         tables_.erase(it);
         btrees_.erase(name);
         saveMetadata();
@@ -454,6 +459,15 @@ public:
         auto it = tables_.find(table);
         if (it == tables_.end()) return 0;
         return it->second.rootPageId;
+    }
+
+    // Phase 6.4: how many pages are currently parked on the Pager's
+    // free-list. dropTable pushes pages back, so this number should grow
+    // when a table is dropped and shrink when the next allocatePage reuses
+    // them. Tests only.
+    std::size_t freePageCount() {
+        if (!pager_) return 0;
+        return pager_->freeListSize();
     }
 
 private:

@@ -83,6 +83,10 @@ public:
     // Free a page: push onto free list.
     void freePage(PageId id);
 
+    // Phase 6.4: walk the free-list chain and return how many pages are
+    // currently available for re-allocation. O(n) — tests only.
+    std::size_t freeListSize();
+
 private:
     // File header (page 0 layout).
     struct Header {
