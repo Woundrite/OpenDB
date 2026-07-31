@@ -123,6 +123,15 @@ private:
                 // ponytail: ORDER BY happens here, in-memory sort on the
                 // collected rows. Lets compare() resolve Nulls/Mixed numeric
                 // types consistently with the SQL semantics.
+                //
+                // Phase 6.3: NULLS FIRST / NULLS LAST (PostgreSQL semantics).
+                //   - Explicit `nullsFirst` in OrderBySpec wins.
+                //   - Default: ASC -> NULLS LAST, DESC -> NULLS FIRST.
+                //
+                // A null VALUE (Value::null()) is distinguishable from a
+                // missing column (maybeGet returns nullopt). Both lead here
+                // and are sorted together; the explicit null-direction
+                // applies uniformly.
                 if (!cmd.orderBy.empty()) {
                     std::vector<OrderBySpec> specs = cmd.orderBy;
                     std::sort(matched.begin(), matched.end(),
@@ -130,9 +139,17 @@ private:
                                   for (const auto& s : specs) {
                                       auto av = a.maybeGet(s.column);
                                       auto bv = b.maybeGet(s.column);
-                                      if (!av && !bv) continue;
-                                      if (!av) return s.direction == SortDirection::Asc;
-                                      if (!bv) return s.direction != SortDirection::Asc;
+                                      const bool aMissing = !av.has_value();
+                                      const bool bMissing = !bv.has_value();
+                                      const bool aIsNull  = !aMissing && av->isNull();
+                                      const bool bIsNull  = !bMissing && bv->isNull();
+                                      // If both null/missing, fall through to next spec.
+                                      if ((aMissing || aIsNull) && (bMissing || bIsNull)) continue;
+                                      // Resolve effective NULLS FIRST direction.
+                                      const bool nullsFirst =
+                                          s.nullsFirst.value_or(s.direction == SortDirection::Desc);
+                                      if (aMissing || aIsNull) return nullsFirst;
+                                      if (bMissing || bIsNull) return !nullsFirst;
                                       auto cmp = av->compare(*bv);
                                       if (cmp == std::strong_ordering::equal) continue;
                                       if (s.direction == SortDirection::Asc) {

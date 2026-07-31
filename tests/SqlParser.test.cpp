@@ -379,6 +379,55 @@ TEST(SqlParser_OrderBy_Multi_Columns) {
     }
 }
 
+// Phase 6.3: NULLS FIRST / NULLS LAST
+TEST(SqlParser_OrderBy_NullsFirst_Populates_OrderBySpec) {
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM u ORDER BY age ASC NULLS FIRST");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    EXPECT(cmd != nullptr);
+    EXPECT_EQ(cmd->orderBy.size(), std::size_t{1});
+    EXPECT(cmd->orderBy[0].column == "age");
+    EXPECT(cmd->orderBy[0].direction == SortDirection::Asc);
+    EXPECT(cmd->orderBy[0].nullsFirst.has_value());
+    EXPECT(*cmd->orderBy[0].nullsFirst == true);
+}
+
+TEST(SqlParser_OrderBy_NullsLast_Populates_OrderBySpec) {
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM u ORDER BY age DESC NULLS LAST");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    EXPECT(cmd != nullptr);
+    EXPECT(cmd->orderBy[0].direction == SortDirection::Desc);
+    EXPECT(cmd->orderBy[0].nullsFirst.has_value());
+    EXPECT(*cmd->orderBy[0].nullsFirst == false);
+}
+
+TEST(SqlParser_OrderBy_NullsFirst_Multi_Columns) {
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM u ORDER BY a ASC NULLS FIRST, b DESC NULLS LAST");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    EXPECT_EQ(cmd->orderBy.size(), std::size_t{2});
+    EXPECT(cmd->orderBy[0].nullsFirst.has_value() && *cmd->orderBy[0].nullsFirst == true);
+    EXPECT(cmd->orderBy[1].nullsFirst.has_value() && *cmd->orderBy[1].nullsFirst == false);
+}
+
+TEST(SqlParser_OrderBy_NoNullsClause_DefaultsTo_None) {
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM u ORDER BY age ASC");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    EXPECT(cmd->orderBy[0].nullsFirst.has_value() == false);
+}
+
+TEST(SqlParser_OrderBy_NullsWithoutFirstLast_Rejected) {
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM u ORDER BY age NULLS");
+    EXPECT(!s.has_value());
+}
+
 TEST(SqlParser_Limit_And_Offset_Populate_Command) {
     SqlParser p;
     auto s = p.parse("SELECT * FROM u LIMIT 10 OFFSET 5");

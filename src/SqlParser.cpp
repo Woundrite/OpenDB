@@ -505,7 +505,7 @@ std::optional<Command> SqlParser::parseSelect() {
         where = Predicate(std::move(pred));
     }
 
-    // ponytail: ORDER BY col [ASC|DESC] [, col ...]  → OrderBySpec list
+    // Phase 6.3: ORDER BY col [ASC|DESC] [NULLS FIRST|LAST] [, col ...]
     std::vector<OrderBySpec> orderBy;
     if (consumeKeyword("ORDER")) {
         if (!consumeKeyword("BY")) {
@@ -521,7 +521,18 @@ std::optional<Command> SqlParser::parseSelect() {
             } else if (consumeKeyword("DESC")) {
                 dir = SortDirection::Desc;
             }
-            orderBy.push_back({*col, dir});
+            std::optional<bool> nullsFirst;
+            if (consumeKeyword("NULLS")) {
+                if (consumeKeyword("FIRST")) {
+                    nullsFirst = true;
+                } else if (consumeKeyword("LAST")) {
+                    nullsFirst = false;
+                } else {
+                    error_ = "expected FIRST or LAST after NULLS";
+                    return std::nullopt;
+                }
+            }
+            orderBy.push_back({*col, dir, nullsFirst});
             if (consumeSymbol(",")) continue;
             break;
         }

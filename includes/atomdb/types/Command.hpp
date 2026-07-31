@@ -34,9 +34,15 @@ enum class SortDirection { Asc, Desc };
 
 // Order-by spec: pair of (column, direction). Order is meaningful — first
 // entry sorts first, then ties on second, etc.
+//
+// nullsFirst: when std::nullopt, defaults follow PostgreSQL: ASC = NULLS LAST,
+// DESC = NULLS FIRST. When set, the user-specified ordering wins.
+//   - nullsFirst = true  -> NULLs sort before non-NULLs
+//   - nullsFirst = false -> NULLs sort after non-NULLs
 struct OrderBySpec {
     std::string column;
     SortDirection direction = SortDirection::Asc;
+    std::optional<bool> nullsFirst = std::nullopt;
 };
 
 class Command {
@@ -101,6 +107,9 @@ public:
                 if (i) os << ',';
                 os << orderBy[i].column
                    << (orderBy[i].direction == SortDirection::Asc ? ":asc" : ":desc");
+                if (orderBy[i].nullsFirst.has_value()) {
+                    os << (*orderBy[i].nullsFirst ? ":nullsFirst" : ":nullsLast");
+                }
             }
             os << "]";
         }

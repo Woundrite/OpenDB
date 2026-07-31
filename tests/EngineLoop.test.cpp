@@ -1,4 +1,4 @@
-#include "test_framework.hpp"
+﻿#include "test_framework.hpp"
 
 #include <sstream>
 #include <string>
@@ -217,3 +217,125 @@ TEST(Engine_Loop_Limit_Truncates_Rows) {
     EXPECT(src.presented_results[0].find("_id=1") != std::string::npos);
     EXPECT(src.presented_results[2].find("_id=3") != std::string::npos);
 }
+
+// Phase 6.3: NULLS FIRST / NULLS LAST semantics.
+//
+// Default per PostgreSQL:
+//   - ASC  -> NULLS LAST  (NULL sorts after non-NULL)
+//   - DESC -> NULLS FIRST (NULL sorts before non-NULL)
+//
+// Explicit NULLS FIRST / NULLS LAST override the default.
+
+TEST(Engine_Loop_OrderBy_NullsDefault_AscPlacesLast) {
+    TransactionManager txnm;
+    LockManager        lkm;
+    DeadlockDetector   dd(lkm);
+    InMemoryStorageEngine storage;
+    ScriptedSource       src;
+
+    // rows: id=1 (a=null), id=2 (a=10), id=3 (a=null), id=4 (a=20)
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"a", Value::null()}, {"_id", Value::int64(1)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"a", Value::int64(10)}, {"_id", Value::int64(2)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"a", Value::null()}, {"_id", Value::int64(3)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"a", Value::int64(20)}, {"_id", Value::int64(4)}})));
+
+    src.cmds.push_back(Command(CommandType::Select, "u").withOrderBy(
+        {{"a", SortDirection::Asc, std::nullopt}}));
+
+    EngineLoop engine(src, storage, txnm, lkm, dd);
+    engine.run();
+
+    // Expected order: 2 (a=10), 4 (a=20), 1 (a=null), 3 (a=null)
+    EXPECT_EQ(src.presented_results.size(), std::size_t{4});
+    EXPECT(src.presented_results[0].find("_id=2") != std::string::npos);
+    EXPECT(src.presented_results[1].find("_id=4") != std::string::npos);
+    EXPECT(src.presented_results[2].find("_id=1") != std::string::npos);
+    EXPECT(src.presented_results[3].find("_id=3") != std::string::npos);
+}
+
+TEST(Engine_Loop_OrderBy_NullsDefault_DescPlacesFirst) {
+    TransactionManager txnm;
+    LockManager        lkm;
+    DeadlockDetector   dd(lkm);
+    InMemoryStorageEngine storage;
+    ScriptedSource       src;
+
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"a", Value::int64(10)}, {"_id", Value::int64(1)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"a", Value::null()}, {"_id", Value::int64(2)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"a", Value::int64(20)}, {"_id", Value::int64(3)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"a", Value::null()}, {"_id", Value::int64(4)}})));
+
+    src.cmds.push_back(Command(CommandType::Select, "u").withOrderBy(
+        {{"a", SortDirection::Desc, std::nullopt}}));
+
+    EngineLoop engine(src, storage, txnm, lkm, dd);
+    engine.run();
+
+    // Expected order: 2 (a=null), 4 (a=null), 3 (a=20), 1 (a=10)
+    EXPECT_EQ(src.presented_results.size(), std::size_t{4});
+    EXPECT(src.presented_results[0].find("_id=2") != std::string::npos);
+    EXPECT(src.presented_results[1].find("_id=4") != std::string::npos);
+    EXPECT(src.presented_results[2].find("_id=3") != std::string::npos);
+    EXPECT(src.presented_results[3].find("_id=1") != std::string::npos);
+}
+
+TEST(Engine_Loop_OrderBy_NullsFirst_Override) {
+    TransactionManager txnm;
+    LockManager        lkm;
+    DeadlockDetector   dd(lkm);
+    InMemoryStorageEngine storage;
+    ScriptedSource       src;
+
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"a", Value::int64(10)}, {"_id", Value::int64(1)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"a", Value::null()}, {"_id", Value::int64(2)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"a", Value::int64(20)}, {"_id", Value::int64(3)}})));
+
+    // ASC + NULLS FIRST: NULLs before non-NULLs.
+    src.cmds.push_back(Command(CommandType::Select, "u").withOrderBy(
+        {{"a", SortDirection::Asc, std::optional<bool>{true}}}));
+
+    EngineLoop engine(src, storage, txnm, lkm, dd);
+    engine.run();
+
+    EXPECT(src.presented_results[0].find("_id=2") != std::string::npos);
+    EXPECT(src.presented_results[1].find("_id=1") != std::string::npos);
+    EXPECT(src.presented_results[2].find("_id=3") != std::string::npos);
+}
+
+TEST(Engine_Loop_OrderBy_NullsLast_Override) {
+    TransactionManager txnm;
+    LockManager        lkm;
+    DeadlockDetector   dd(lkm);
+    InMemoryStorageEngine storage;
+    ScriptedSource       src;
+
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"a", Value::int64(10)}, {"_id", Value::int64(1)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"a", Value::null()}, {"_id", Value::int64(2)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"a", Value::int64(20)}, {"_id", Value::int64(3)}})));
+
+    // DESC + NULLS LAST: NULLs after non-NULLs (override DESC default).
+    src.cmds.push_back(Command(CommandType::Select, "u").withOrderBy(
+        {{"a", SortDirection::Desc, std::optional<bool>{false}}}));
+
+    EngineLoop engine(src, storage, txnm, lkm, dd);
+    engine.run();
+
+    EXPECT(src.presented_results[0].find("_id=3") != std::string::npos);
+    EXPECT(src.presented_results[1].find("_id=1") != std::string::npos);
+    EXPECT(src.presented_results[2].find("_id=2") != std::string::npos);
+}
+
