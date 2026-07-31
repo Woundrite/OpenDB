@@ -17,8 +17,15 @@ using namespace sockets;
 // IoThread
 // ---------------------------------------------------------------------------
 
-IoThread::IoThread(HttpServer::Config cfg, HandlerFn onRequest, CloseFn onClose)
-    : cfg_(std::move(cfg)), onRequest_(std::move(onRequest)), onClose_(std::move(onClose)) {
+IoThread::IoThread(HttpServer::Config cfg, HandlerFn onRequest, CloseFn onClose,
+                     AcceptFn onAccept,
+                     bool isAcceptor, PeerSelector peerSelector)
+    : cfg_(std::move(cfg)),
+      onRequest_(std::move(onRequest)),
+      onClose_(std::move(onClose)),
+      onAccept_(std::move(onAccept)),
+      peerSelector_(std::move(peerSelector)),
+      isAcceptor_(isAcceptor) {
 #if !defined(_WIN32)
     int pipefd[2];
     if (::pipe(pipefd) == 0) {
@@ -45,6 +52,11 @@ void IoThread::adopt(HttpServer::SocketHandle fd) {
         c->fd = fd;
         conns_[fd] = std::move(c);
     }
+    wake();
+}
+
+void IoThread::setListenFd(HttpServer::SocketHandle fd) {
+    listen_fd_ = fd;
     wake();
 }
 
@@ -91,6 +103,15 @@ void IoThread::run() {
         }
 #endif
 
+        // Phase 6.6: acceptor io thread also watches the listen fd.
+        // Calling accept() only when select() says the listen fd is
+        // readable avoids the Windows busy-spin where accept() on a
+        // non-blocking listen fd returns WSAEWOULDBLOCK immediately.
+        if (isAcceptor_ && listen_fd_ != static_cast<HttpServer::SocketHandle>(-1)) {
+            FD_SET(listen_fd_, &readfds);
+            maxFd = std::max(maxFd, static_cast<int>(listen_fd_));
+        }
+
         std::vector<HttpServer::SocketHandle> writeFds;
         {
             std::lock_guard<std::mutex> lk(mu_);
@@ -117,6 +138,24 @@ void IoThread::run() {
             if (errno == EINTR) continue;
 #endif
             break;
+        }
+
+        // Phase 6.6: drain the listen fd. On a busy-spin-free Windows
+        // machine this fires only when a real connection is pending.
+        if (isAcceptor_ && listen_fd_ != static_cast<HttpServer::SocketHandle>(-1) && FD_ISSET(listen_fd_, &readfds)) {
+            while (running_.load()) {
+                HttpServer::SocketHandle clientFd = -1;
+                if (!sockets::accept(listen_fd_, clientFd)) break;
+                if (onAccept_) onAccept_();
+                // Hand to a peer io thread (round-robin via the selector).
+                IoThread* peer = peerSelector_ ? peerSelector_() : nullptr;
+                if (peer) {
+                    if (peer != this) peer->adopt(clientFd);
+                    else adopt(clientFd);
+                } else {
+                    adopt(clientFd);
+                }
+            }
         }
 
         // Wake pipe: drain it.

@@ -19,12 +19,16 @@ namespace atomdb {
 class IoThread;
 
 // HttpServer: multi-threaded async HTTP/1.1 server. Architecture:
-//   - 1 accept thread (blocks on accept()) and N io threads (default =
-//     hardware_concurrency). Each io thread owns a subset of open sockets
-//     and runs a select() loop with a 100ms timeout.
-//   - Accepted connections are dispatched to io threads in round-robin
-//     order; the accept thread writes to the chosen thread's wake pipe to
-//     ensure select() returns immediately instead of waiting up to 100ms.
+//   - N io threads (default = hardware_concurrency). Each io thread owns
+//     a subset of open sockets and runs a select() loop with a 100ms
+//     timeout. The first io thread also watches the listen fd in its
+//     select() set and calls accept() when the listen fd is ready, then
+//     round-robins the new connection to a peer io thread.
+//   - Phase 6.6: previously we had a separate accept thread that
+//     busy-spun on Windows because accept() on a non-blocking listen fd
+//     returns WSAEWOULDBLOCK immediately. Now the listen fd is part of
+//     the io thread's select() set, so accept() only fires when there is
+//     actually a pending connection.
 //   - On a ready socket the io thread reads bytes into a per-connection
 //     read buffer, parses an HTTP/1.1 request, builds an HttpSession and
 //     enqueues it on EngineDispatcher. The dispatcher worker executes
@@ -94,12 +98,10 @@ private:
     Stats stats_;
 
     SocketHandle listen_fd_ = -1;
-    std::thread accept_thread_;
     std::vector<std::thread> io_threads_;
     std::vector<std::unique_ptr<class IoThread>> io_impls_;
     std::atomic<std::size_t> next_io_idx_{0};
 
-    void acceptLoop();
     void onClientRequest(HttpServer::SocketHandle fd, const std::string& request);
     void sendResponse(SocketHandle fd, int statusCode, const std::string& reason, const std::string& body);
     void sendError(SocketHandle fd, int statusCode, const std::string& reason, const std::string& message);

@@ -99,9 +99,13 @@ bool HttpServer::listen(const Config& cfg) {
     }
     bound_port_.store(boundPort);
 
-    // Create io threads.
+    // Create io threads. Phase 6.6: the FIRST io thread is also the
+    // acceptor — it watches listen_fd_ in its select() set. The rest
+    // receive round-robined connections from the acceptor via the
+    // peerSelector callback.
     io_impls_.reserve(cfg_.ioThreadCount);
     for (std::size_t i = 0; i < cfg_.ioThreadCount; ++i) {
+        bool isAcceptor = (i == 0);
         io_impls_.push_back(std::make_unique<IoThread>(
             cfg_,
             [this](SocketHandle fd, const std::string& request) {
@@ -109,30 +113,29 @@ bool HttpServer::listen(const Config& cfg) {
             },
             [this](SocketHandle /*fd*/) {
                 // Client closed; no action needed.
+            },
+            [this]() {
+                // Bump per-process connection counters when the acceptor
+                // accepts a new connection.
+                stats_.connectionsAccepted.fetch_add(1);
+                stats_.connectionsActive.fetch_add(1);
+            },
+            isAcceptor,
+            [this]() -> IoThread* {
+                // Round-robin to any peer; the acceptor (idx 0) is one
+                // valid destination if ioThreadCount == 1.
+                if (io_impls_.empty()) return nullptr;
+                std::size_t idx = next_io_idx_.fetch_add(1) % io_impls_.size();
+                return io_impls_[idx].get();
             }
         ));
     }
 
-    // Start accept loop.
+    // Wire the listen fd into the acceptor.
+    io_impls_[0]->setListenFd(listen_fd_);
+
     running_.store(true);
-    accept_thread_ = std::thread([this] { acceptLoop(); });
     return true;
-}
-
-void HttpServer::acceptLoop() {
-    while (running_.load()) {
-        SocketHandle clientFd = -1;
-        if (!sockets::accept(listen_fd_, clientFd)) {
-            if (!running_.load()) break;
-            continue;
-        }
-        stats_.connectionsAccepted.fetch_add(1);
-        stats_.connectionsActive.fetch_add(1);
-
-        // Round-robin to io thread.
-        std::size_t idx = next_io_idx_.fetch_add(1) % io_impls_.size();
-        io_impls_[idx]->adopt(clientFd);
-    }
 }
 
 void HttpServer::stop() {
@@ -147,7 +150,6 @@ void HttpServer::stop() {
 }
 
 void HttpServer::join() {
-    if (accept_thread_.joinable()) accept_thread_.join();
     for (auto& impl : io_impls_) {
         impl->join();
     }
