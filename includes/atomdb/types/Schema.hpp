@@ -119,6 +119,28 @@ struct Schema {
     bool hasPrimaryKey() const noexcept { return !primaryKeyColumn().empty(); }
 };
 
+// Phase 6.1: ALTER TABLE operations. A provider receives an AlterSpec and
+// applies the change atomically. Operations are variant-style: only one
+// of addColumn / dropColumn / renameTable is meaningful per spec. The
+// provider rejects any other combinations with DbError::notSupported.
+//
+//   - addColumn: append a new column to the schema. Existing rows get
+//                std::nullopt for the new column (NULL value).
+//   - dropColumn: remove a column from the schema. Existing rows lose
+//                 that field on the next read.
+//   - renameTable: rename the table. The old name is unregistered, the
+//                  new name is registered, with the same data.
+struct AlterSpec {
+    enum class Kind { AddColumn, DropColumn, RenameTable };
+    Kind kind;
+    std::string column;            // AddColumn: name+type of new col;
+                                   // DropColumn: name of col to remove;
+                                   // RenameTable: new table name.
+    ColumnDef columnDef;           // AddColumn: full definition (used by
+                                   //              describeTable).
+                                   // DropColumn / RenameTable: ignored.
+};
+
 } // namespace atomdb
 
 #endif // ATOMDB_SCHEMA_HPP

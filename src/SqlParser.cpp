@@ -226,6 +226,12 @@ std::optional<SqlStatement> SqlParser::parseStatement() {
         error_ = "expected TABLE after DROP";
         return std::nullopt;
     }
+    // ALTER TABLE
+    if (consumeKeyword("ALTER")) {
+        if (consumeKeyword("TABLE")) return parseAlterTable();
+        error_ = "expected TABLE after ALTER";
+        return std::nullopt;
+    }
     // INSERT
     if (consumeKeyword("INSERT")) return parseInsert();
     // SELECT
@@ -423,6 +429,61 @@ std::optional<DdlDropTable> SqlParser::parseDropTable() {
     return DdlDropTable{*tableName};
 }
 
+// Phase 6.1: ALTER TABLE <name> ADD COLUMN <col_def>
+//            ALTER TABLE <name> DROP COLUMN <col>
+//            ALTER TABLE <name> RENAME TO <new_name>
+std::optional<DdlAlterTable> SqlParser::parseAlterTable() {
+    auto tableName = consumeIdentifier();
+    if (!tableName) {
+        error_ = "expected table name after ALTER TABLE";
+        return std::nullopt;
+    }
+    AlterSpec spec;
+    if (consumeKeyword("ADD")) {
+        if (!consumeKeyword("COLUMN")) {
+            error_ = "expected COLUMN after ADD";
+            return std::nullopt;
+        }
+        ColumnDef col;
+        bool hasPrimaryKey = false;
+        if (!parseColumnSpec(col, hasPrimaryKey)) return std::nullopt;
+        spec.kind = AlterSpec::Kind::AddColumn;
+        spec.columnDef = col;
+        spec.column = col.name;
+        return DdlAlterTable{*tableName, spec};
+    }
+    if (consumeKeyword("DROP")) {
+        if (!consumeKeyword("COLUMN")) {
+            error_ = "expected COLUMN after DROP";
+            return std::nullopt;
+        }
+        auto colName = consumeIdentifier();
+        if (!colName) {
+            error_ = "expected column name";
+            return std::nullopt;
+        }
+        spec.kind = AlterSpec::Kind::DropColumn;
+        spec.column = *colName;
+        return DdlAlterTable{*tableName, spec};
+    }
+    if (consumeKeyword("RENAME")) {
+        if (!consumeKeyword("TO")) {
+            error_ = "expected TO after RENAME";
+            return std::nullopt;
+        }
+        auto newName = consumeIdentifier();
+        if (!newName) {
+            error_ = "expected new table name after RENAME TO";
+            return std::nullopt;
+        }
+        spec.kind = AlterSpec::Kind::RenameTable;
+        spec.column = *newName;
+        return DdlAlterTable{*tableName, spec};
+    }
+    error_ = "expected ADD, DROP, or RENAME after ALTER TABLE";
+    return std::nullopt;
+}
+
 // -----------------------------------------------------------------------------
 // DML parsing
 // -----------------------------------------------------------------------------
@@ -572,6 +633,7 @@ std::optional<Command> SqlParser::parseSelect() {
     if (!orderBy.empty()) cmd.withOrderBy(std::move(orderBy));
     if (limitVal)  cmd.withLimit(*limitVal);
     if (offsetVal) cmd.withOffset(*offsetVal);
+
     return cmd;
 }
 

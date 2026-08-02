@@ -1,6 +1,7 @@
 #ifndef ATOMDB_LOCAL_FILE_STORAGE_PROVIDER_HPP
 #define ATOMDB_LOCAL_FILE_STORAGE_PROVIDER_HPP
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -283,6 +284,68 @@ public:
         saveMetadata();
         pager_->sync();
         return DbError::sentinel();
+    }
+
+    // Phase 6.1: ALTER TABLE for LocalFile. AddColumn / DropColumn
+    // rewrite the metadata page (no row rewriting needed because column
+    // slots in the row payload are fixed-position and adding/dropping
+    // a column just changes which columns are read/written). RenameTable
+    // moves the registry entry under a new key (the BTree root is
+    // unchanged).
+    DbError alterTable(const std::string& name, const AlterSpec& spec) override {
+        const std::lock_guard<std::mutex> lk(mutex_);
+        if (!opened_) return DbError::internal("provider not open");
+        auto it = tables_.find(name);
+        if (it == tables_.end()) {
+            return DbError::notFound("table '" + name + "' not found");
+        }
+        TableInfo& info = it->second;
+        switch (spec.kind) {
+            case AlterSpec::Kind::AddColumn: {
+                if (info.schema.find(spec.columnDef.name) != nullptr) {
+                    return DbError::internal("column '" + spec.columnDef.name + "' already exists");
+                }
+                info.schema.columns.push_back(spec.columnDef);
+                saveMetadata();
+                pager_->sync();
+                return DbError::sentinel();
+            }
+            case AlterSpec::Kind::DropColumn: {
+                auto cit = std::find_if(info.schema.columns.begin(), info.schema.columns.end(),
+                    [&](const ColumnDef& c) { return c.name == spec.column; });
+                if (cit == info.schema.columns.end()) {
+                    return DbError::notFound("column '" + spec.column + "' not found");
+                }
+                info.schema.columns.erase(cit);
+                saveMetadata();
+                pager_->sync();
+                return DbError::sentinel();
+            }
+            case AlterSpec::Kind::RenameTable: {
+                if (spec.column.empty()) {
+                    return DbError::internal("rename requires new name");
+                }
+                if (tables_.find(spec.column) != tables_.end()) {
+                    return DbError::internal("table '" + spec.column + "' already exists");
+                }
+                TableInfo moved = std::move(info);
+                moved.schema.table = spec.column;
+                std::string newName = spec.column;
+                tables_.erase(it);
+                tables_.emplace(newName, std::move(moved));
+                // Move BTree registry too.
+                auto bt_it = btrees_.find(name);
+                if (bt_it != btrees_.end()) {
+                    auto bt = std::move(bt_it->second);
+                    btrees_.erase(bt_it);
+                    btrees_.emplace(newName, std::move(bt));
+                }
+                saveMetadata();
+                pager_->sync();
+                return DbError::sentinel();
+            }
+        }
+        return DbError::notSupported("unknown AlterSpec kind");
     }
 
     std::optional<Schema> describeTable(const std::string& name) const override {

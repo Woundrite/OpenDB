@@ -191,6 +191,11 @@ private:
             if (!err.isSentinel()) return JsonEncoder::encode(err);
             return "{\"success\":true}";
         }
+        if (auto* ddl = std::get_if<DdlAlterTable>(&stmt)) {
+            auto err = storage_->alterTable(ddl->table, ddl->spec);
+            if (!err.isSentinel()) return JsonEncoder::encode(err);
+            return "{\"success\":true}";
+        }
         if (std::get_if<SqlTxnBegin>(&stmt)) return executeRequest({"begin", "", {}});
         if (std::get_if<SqlTxnCommit>(&stmt)) return executeRequest({"commit", "", {}});
         if (std::get_if<SqlTxnRollback>(&stmt)) return executeRequest({"rollback", "", {}});

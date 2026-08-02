@@ -1,6 +1,7 @@
 #ifndef ATOMDB_IN_MEMORY_STORAGE_PROVIDER_HPP
 #define ATOMDB_IN_MEMORY_STORAGE_PROVIDER_HPP
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -112,6 +113,51 @@ public:
         }
         schemas_.erase(it);
         return DbError::sentinel();
+    }
+
+    // Phase 6.1: in-memory schema is just a hash-map entry; ALTER TABLE
+    // is a metadata-only edit. Existing rows keep their columns; reads
+    // return std::nullopt for new columns until a future put() writes
+    // a value into them.
+    DbError alterTable(const std::string& name, const AlterSpec& spec) override {
+        const std::lock_guard<std::mutex> lk(schema_mu_);
+        auto it = schemas_.find(name);
+        if (it == schemas_.end()) {
+            return DbError::notFound("table '" + name + "' not found");
+        }
+        Schema& s = it->second;
+        switch (spec.kind) {
+            case AlterSpec::Kind::AddColumn: {
+                if (s.find(spec.columnDef.name) != nullptr) {
+                    return DbError::internal("column '" + spec.columnDef.name + "' already exists");
+                }
+                s.columns.push_back(spec.columnDef);
+                return DbError::sentinel();
+            }
+            case AlterSpec::Kind::DropColumn: {
+                auto cit = std::find_if(s.columns.begin(), s.columns.end(),
+                    [&](const ColumnDef& c) { return c.name == spec.column; });
+                if (cit == s.columns.end()) {
+                    return DbError::notFound("column '" + spec.column + "' not found");
+                }
+                s.columns.erase(cit);
+                return DbError::sentinel();
+            }
+            case AlterSpec::Kind::RenameTable: {
+                if (spec.column.empty()) {
+                    return DbError::internal("rename requires new name");
+                }
+                if (schemas_.find(spec.column) != schemas_.end()) {
+                    return DbError::internal("table '" + spec.column + "' already exists");
+                }
+                Schema moved = std::move(s);
+                moved.table = spec.column;
+                schemas_.erase(it);
+                schemas_.emplace(moved.table, std::move(moved));
+                return DbError::sentinel();
+            }
+        }
+        return DbError::notSupported("unknown AlterSpec kind");
     }
 
     std::optional<Schema> describeTable(const std::string& name) const override {

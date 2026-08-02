@@ -30,6 +30,12 @@ struct DdlCreateTable {
 struct DdlDropTable {
     std::string table;
 };
+// Phase 6.1: ALTER TABLE statement. Carries the table name and an
+// AlterSpec that the provider's alterTable() applies.
+struct DdlAlterTable {
+    std::string table;
+    AlterSpec spec;
+};
 struct SqlTxnBegin {};
 struct SqlTxnCommit {};
 struct SqlTxnRollback {};
@@ -37,6 +43,7 @@ struct SqlTxnRollback {};
 using SqlStatement = std::variant<
     DdlCreateTable,
     DdlDropTable,
+    DdlAlterTable,
     SqlTxnBegin,
     SqlTxnCommit,
     SqlTxnRollback,
@@ -100,6 +107,7 @@ private:
     std::optional<SqlStatement> parseStatement();
     std::optional<DdlCreateTable> parseCreateTable();
     std::optional<DdlDropTable>  parseDropTable();
+    std::optional<DdlAlterTable> parseAlterTable();
     std::optional<Command> parseInsert();
     std::optional<Command> parseSelect();
     std::optional<Command> parseUpdate();

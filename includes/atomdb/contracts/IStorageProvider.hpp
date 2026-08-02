@@ -88,6 +88,13 @@ public:
     virtual std::optional<Schema> describeTable(const std::string& name) const = 0;
     virtual std::vector<std::string> tables() const = 0;
 
+    // ---- Phase 6.1: ALTER TABLE (DDL mutation) ------------------------------
+    // Apply an AlterSpec to the named table. Atomically updates the schema
+    // metadata + any on-disk representation the provider keeps. Implementers
+    // are responsible for migrating existing rows if needed (e.g. default
+    // value for AddColumn) and for accepting the change before returning.
+    virtual DbError alterTable(const std::string& name, const AlterSpec& spec) = 0;
+
     // ---- Engine access ------------------------------------------------------
     // Returns the IStorageEngine facet held by this provider. The EngineDispatcher
     // is constructed with this pointer; the core is unaware of the provider layer.

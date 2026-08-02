@@ -1,6 +1,7 @@
 #ifndef ATOMDB_SHARDED_STORAGE_PROVIDER_HPP
 #define ATOMDB_SHARDED_STORAGE_PROVIDER_HPP
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -182,6 +183,60 @@ public:
             schemas_.erase(name);
         }
         engine_->clearPartitionPolicy(name);
+        return DbError::sentinel();
+    }
+
+    // Phase 6.1: ALTER TABLE for Sharded. For AddColumn / DropColumn we
+    // propagate to every shard. For RenameTable we move the registry
+    // entry (data is unaffected; shard key routing is by column name).
+    DbError alterTable(const std::string& name, const AlterSpec& spec) override {
+        if (!opened_) return DbError::internal("provider not open");
+        if (spec.kind == AlterSpec::Kind::RenameTable) {
+            const std::lock_guard<std::mutex> lk(schema_mu_);
+            auto it = schemas_.find(name);
+            if (it == schemas_.end()) {
+                return DbError::notFound("table '" + name + "' not found");
+            }
+            if (spec.column.empty()) {
+                return DbError::internal("rename requires new name");
+            }
+            if (schemas_.find(spec.column) != schemas_.end()) {
+                return DbError::internal("table '" + spec.column + "' already exists");
+            }
+            Schema moved = std::move(it->second);
+            moved.table = spec.column;
+            schemas_.erase(it);
+            schemas_.emplace(spec.column, std::move(moved));
+            return DbError::sentinel();
+        }
+        for (auto& s : shards_) {
+            auto r = s->alterTable(name, spec);
+            if (!r.isSentinel()) return r;
+        }
+        {
+            const std::lock_guard<std::mutex> lk(schema_mu_);
+            auto it = schemas_.find(name);
+            if (it == schemas_.end()) return DbError::notFound("table '" + name + "' not found");
+            Schema& sc = it->second;
+            switch (spec.kind) {
+                case AlterSpec::Kind::AddColumn:
+                    if (sc.find(spec.columnDef.name) != nullptr) {
+                        return DbError::internal("column already exists");
+                    }
+                    sc.columns.push_back(spec.columnDef);
+                    break;
+                case AlterSpec::Kind::DropColumn: {
+                    auto cit = std::find_if(sc.columns.begin(), sc.columns.end(),
+                        [&](const ColumnDef& c) { return c.name == spec.column; });
+                    if (cit == sc.columns.end()) {
+                        return DbError::notFound("column not found");
+                    }
+                    sc.columns.erase(cit);
+                    break;
+                }
+                default: break;
+            }
+        }
         return DbError::sentinel();
     }
 
