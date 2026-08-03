@@ -634,6 +634,57 @@ std::optional<Command> SqlParser::parseSelect() {
     if (limitVal)  cmd.withLimit(*limitVal);
     if (offsetVal) cmd.withOffset(*offsetVal);
 
+    // Phase 6.2: optional [INNER|LEFT] JOIN <table> ON <tbl.col>=<tbl.col> chain.
+    // The JOIN clause lives between the SELECT core and the trailing
+    // statement terminator. We parse it greedily here so callers that
+    // inspect cmd.joins see the full chain. JOIN syntax: INNER JOIN | LEFT
+    // JOIN | JOIN (default Inner), then ON <qual.col> = <qual.col>.
+    while (true) {
+        JoinKind kind = JoinKind::Inner;
+        bool sawJoinKeyword = false;
+        if (consumeKeyword("INNER")) {
+            if (!consumeKeyword("JOIN")) break;
+            kind = JoinKind::Inner;
+            sawJoinKeyword = true;
+        } else if (consumeKeyword("LEFT")) {
+            if (!consumeKeyword("JOIN")) break;
+            kind = JoinKind::Left;
+            sawJoinKeyword = true;
+        } else if (consumeKeyword("JOIN")) {
+            kind = JoinKind::Inner;
+            sawJoinKeyword = true;
+        }
+        if (!sawJoinKeyword) break;
+
+        auto rightTable = consumeIdentifier();
+        if (!rightTable) {
+            error_ = "expected table name after JOIN";
+            return std::nullopt;
+        }
+        if (!consumeKeyword("ON")) {
+            error_ = "expected ON after JOIN table";
+            return std::nullopt;
+        }
+        auto leftTbl = consumeIdentifier();
+        if (!leftTbl) { error_ = "expected left table in JOIN ON"; return std::nullopt; }
+        if (!consumeSymbol(".")) { error_ = "expected '.' in JOIN ON left"; return std::nullopt; }
+        auto leftCol = consumeIdentifier();
+        if (!leftCol) { error_ = "expected left column in JOIN ON"; return std::nullopt; }
+        if (!consumeSymbol("=")) { error_ = "expected '=' in JOIN ON"; return std::nullopt; }
+        auto rightTbl = consumeIdentifier();
+        if (!rightTbl) { error_ = "expected right table in JOIN ON"; return std::nullopt; }
+        if (!consumeSymbol(".")) { error_ = "expected '.' in JOIN ON right"; return std::nullopt; }
+        auto rightCol = consumeIdentifier();
+        if (!rightCol) { error_ = "expected right column in JOIN ON"; return std::nullopt; }
+
+        JoinClause jc;
+        jc.kind = kind;
+        jc.table = *rightTable;
+        jc.leftColumn = *leftTbl + "." + *leftCol;
+        jc.rightColumn = *rightTbl + "." + *rightCol;
+        cmd.joins.push_back(std::move(jc));
+    }
+
     return cmd;
 }
 

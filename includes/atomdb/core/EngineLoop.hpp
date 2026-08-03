@@ -104,21 +104,128 @@ private:
                 // Collect first: ORDER BY/LIMIT/OFFSET need the full filtered
                 // row set in memory before presentation.
                 std::vector<Tuple> matched;
-                storage_.scan(txn, cmd.table, [&](const Tuple& row) {
-                    if (!cmd.where.has_value() || cmd.where->evaluate(row)) {
-                        if (cmd.projections.empty() ||
-                            (cmd.projections.size() == 1 && cmd.projections[0] == "*")) {
-                            matched.push_back(row);
-                        } else {
-                            Tuple projected;
+
+                if (cmd.joins.empty()) {
+                    // Single-table path: keep behavior identical to pre-6.2.
+                    storage_.scan(txn, cmd.table, [&](const Tuple& row) {
+                        if (!cmd.where.has_value() || cmd.where->evaluate(row)) {
+                            if (cmd.projections.empty() ||
+                                (cmd.projections.size() == 1 && cmd.projections[0] == "*")) {
+                                matched.push_back(row);
+                            } else {
+                                Tuple projected;
+                                for (const auto& pc : cmd.projections) {
+                                    auto v = row.maybeGet(pc);
+                                    if (v) projected.set(pc, std::move(*v));
+                                }
+                                matched.push_back(std::move(projected));
+                            }
+                        }
+                    });
+                } else {
+                    // Phase 6.2: nested-loop JOIN path.
+                    //
+                    // Namespace columns with "<table>." on ingestion so columns
+                    // with the same name from different tables don't collide.
+                    // The WHERE predicate still operates on the merged tuple;
+                    // users specify qualified names like "u.id" in their WHERE.
+                    // The ON predicate is evaluated per candidate right row.
+                    auto qualify = [](const Tuple& src, const std::string& tbl) {
+                        Tuple out;
+                        for (const auto& cv : src.columns()) {
+                            out.set(tbl + "." + cv.name, cv.value);
+                        }
+                        return out;
+                    };
+
+                    auto rowsFor = [&](const std::string& tbl) {
+                        std::vector<Tuple> v;
+                        storage_.scan(txn, tbl, [&](const Tuple& row) {
+                            v.push_back(qualify(row, tbl));
+                        });
+                        return v;
+                    };
+
+                    auto leftRows = rowsFor(cmd.table);
+
+                    // Helper: does the ON clause hold for (leftRow, rightRow)?
+                    // The ON columns are stored as "table.col" qualifiers; we
+                    // strip the table prefix at lookup time so the merged tuple
+                    // stays the single source of truth.
+                    auto onMatches = [&](const Tuple& leftRow, const Tuple& rightRow,
+                                        const JoinClause& jc) {
+                        auto lv = leftRow.maybeGet(jc.leftColumn);
+                        auto rv = rightRow.maybeGet(jc.rightColumn);
+                        if (!lv || !rv) return false;
+                        return lv->compare(*rv) == 0;
+                    };
+
+                    // Seed `matched` with the qualified primary rows. Outer
+                    // WHERE applies at the end of the join chain (not per-step),
+                    // so we collect everything here.
+                    matched.reserve(leftRows.size());
+                    for (const auto& lr : leftRows) matched.push_back(lr);
+
+                    // Nested-loop over each JOIN clause.
+                    for (const auto& jc : cmd.joins) {
+                        auto rightRows = rowsFor(jc.table);
+                        std::vector<Tuple> next;
+                        next.reserve(matched.size());
+                        for (const auto& cur : matched) {
+                            bool anyMatch = false;
+                            for (const auto& rr : rightRows) {
+                                if (!onMatches(cur, rr, jc)) continue;
+                                Tuple merged = cur;
+                                for (const auto& cv : rr.columns()) {
+                                    merged.set(cv.name, cv.value);
+                                }
+                                next.push_back(std::move(merged));
+                                anyMatch = true;
+                            }
+                            if (!anyMatch && jc.kind == JoinKind::Left) {
+                                // LEFT JOIN: preserve the unjoined left row,
+                                // populating right-table columns as Value::null().
+                                // We derive the right-table schema from a sample
+                                // right row (any one); if no right rows exist at
+                                // all, the row stays as-is (no right columns).
+                                Tuple merged = cur;
+                                if (!rightRows.empty()) {
+                                    for (const auto& cv : rightRows[0].columns()) {
+                                        merged.set(cv.name, Value::null());
+                                    }
+                                }
+                                next.push_back(std::move(merged));
+                            }
+                        }
+                        matched.swap(next);
+                    }
+
+                    // Apply WHERE against the merged tuple. Skip rows where it fails.
+                    if (cmd.where.has_value()) {
+                        std::vector<Tuple> filtered;
+                        filtered.reserve(matched.size());
+                        for (const auto& row : matched) {
+                            if (cmd.where->evaluate(row)) filtered.push_back(row);
+                        }
+                        matched.swap(filtered);
+                    }
+
+                    // Apply projections.
+                    if (!cmd.projections.empty() &&
+                        !(cmd.projections.size() == 1 && cmd.projections[0] == "*")) {
+                        std::vector<Tuple> projected;
+                        projected.reserve(matched.size());
+                        for (const auto& row : matched) {
+                            Tuple p;
                             for (const auto& pc : cmd.projections) {
                                 auto v = row.maybeGet(pc);
-                                if (v) projected.set(pc, std::move(*v));
+                                if (v) p.set(pc, *v);
                             }
-                            matched.push_back(std::move(projected));
+                            projected.push_back(std::move(p));
                         }
+                        matched.swap(projected);
                     }
-                });
+                }
 
                 // ponytail: ORDER BY happens here, in-memory sort on the
                 // collected rows. Lets compare() resolve Nulls/Mixed numeric

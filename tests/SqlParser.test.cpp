@@ -517,3 +517,51 @@ TEST(SqlParser_Insert_DefaultValues_ProducesEmptyTuple) {
         EXPECT(cmd->values->empty());
     }
 }
+
+// Phase 6.2: JOIN parsing tests.
+TEST(SqlParser_JOIN_INNER_Produces_OneJoin) {
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM a INNER JOIN b ON a.id = b.aid");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    EXPECT(cmd != nullptr);
+    if (cmd) {
+        EXPECT(cmd->type == CommandType::Select);
+        EXPECT(cmd->table == "a");
+        EXPECT_EQ(cmd->joins.size(), std::size_t{1});
+        EXPECT(cmd->joins[0].kind == JoinKind::Inner);
+        EXPECT(cmd->joins[0].table == "b");
+        EXPECT(cmd->joins[0].leftColumn == "a.id");
+        EXPECT(cmd->joins[0].rightColumn == "b.aid");
+    }
+}
+
+TEST(SqlParser_JOIN_LEFT_Kind_Is_Left) {
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM a LEFT JOIN b ON a.id = b.aid");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    if (cmd) {
+        EXPECT_EQ(cmd->joins.size(), std::size_t{1});
+        EXPECT(cmd->joins[0].kind == JoinKind::Left);
+        EXPECT(cmd->joins[0].table == "b");
+    }
+}
+
+TEST(SqlParser_JOIN_3Table_Chain) {
+    SqlParser p;
+    auto s = p.parse(
+        "SELECT * FROM a JOIN b ON a.id = b.aid JOIN c ON b.cid = c.id");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    if (cmd) {
+        EXPECT_EQ(cmd->joins.size(), std::size_t{2});
+        EXPECT(cmd->joins[0].kind == JoinKind::Inner);
+        EXPECT(cmd->joins[0].table == "b");
+        EXPECT(cmd->joins[0].leftColumn == "a.id");
+        EXPECT(cmd->joins[0].rightColumn == "b.aid");
+        EXPECT(cmd->joins[1].table == "c");
+        EXPECT(cmd->joins[1].leftColumn == "b.cid");
+        EXPECT(cmd->joins[1].rightColumn == "c.id");
+    }
+}

@@ -339,3 +339,130 @@ TEST(Engine_Loop_OrderBy_NullsLast_Override) {
     EXPECT(src.presented_results[2].find("_id=2") != std::string::npos);
 }
 
+// Phase 6.2: JOIN executor tests against InMemoryStorageEngine.
+TEST(Engine_Loop_JOIN_INNER_Basic) {
+    TransactionManager txnm;
+    LockManager        lkm;
+    DeadlockDetector   dd(lkm);
+    InMemoryStorageEngine storage;
+    ScriptedSource       src;
+
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"name", Value::text("alice")}, {"_id", Value::int64(1)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"name", Value::text("bob")},   {"_id", Value::int64(2)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"name", Value::text("carol")}, {"_id", Value::int64(3)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "o", std::nullopt,
+        Tuple::make({{"uid", Value::int64(1)}, {"amt", Value::int64(100)}, {"_id", Value::int64(10)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "o", std::nullopt,
+        Tuple::make({{"uid", Value::int64(2)}, {"amt", Value::int64(200)}, {"_id", Value::int64(11)}})));
+    // Unjoined on both sides: uid=99 has no user, carol has no order.
+    src.cmds.push_back(Command(CommandType::Insert, "o", std::nullopt,
+        Tuple::make({{"uid", Value::int64(99)}, {"amt", Value::int64(999)}, {"_id", Value::int64(12)}})));
+
+    Command select(CommandType::Select, "u");
+    select.projections = {"u.name", "o.amt"};
+    select.joins.push_back({JoinKind::Inner, "o", "u._id", "o.uid"});
+    src.cmds.push_back(std::move(select));
+
+    EngineLoop engine(src, storage, txnm, lkm, dd);
+    engine.run();
+
+    EXPECT_EQ(src.presented_errors.size(), std::size_t{0});
+    EXPECT_EQ(src.presented_results.size(), std::size_t{2});
+    // Sort order is undefined; assert both rows are present and the unjoined
+    // ones are absent.
+    bool hasAlice = false, hasBob = false;
+    for (const auto& r : src.presented_results) {
+        if (r.find("u.name=alice") != std::string::npos &&
+            r.find("o.amt=100") != std::string::npos) hasAlice = true;
+        if (r.find("u.name=bob") != std::string::npos &&
+            r.find("o.amt=200") != std::string::npos) hasBob = true;
+    }
+    EXPECT(hasAlice);
+    EXPECT(hasBob);
+}
+
+TEST(Engine_Loop_JOIN_LEFT_Preserves_Unjoined_Left_Rows) {
+    TransactionManager txnm;
+    LockManager        lkm;
+    DeadlockDetector   dd(lkm);
+    InMemoryStorageEngine storage;
+    ScriptedSource       src;
+
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"name", Value::text("alice")}, {"_id", Value::int64(1)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"name", Value::text("bob")},   {"_id", Value::int64(2)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "u", std::nullopt,
+        Tuple::make({{"name", Value::text("carol")}, {"_id", Value::int64(3)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "o", std::nullopt,
+        Tuple::make({{"uid", Value::int64(1)}, {"amt", Value::int64(100)}, {"_id", Value::int64(10)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "o", std::nullopt,
+        Tuple::make({{"uid", Value::int64(2)}, {"amt", Value::int64(200)}, {"_id", Value::int64(11)}})));
+    // Right-side orphan (uid=99): dropped under LEFT JOIN semantics.
+
+    Command select(CommandType::Select, "u");
+    select.projections = {"u.name", "o.amt"};
+    select.joins.push_back({JoinKind::Left, "o", "u._id", "o.uid"});
+    src.cmds.push_back(std::move(select));
+
+    EngineLoop engine(src, storage, txnm, lkm, dd);
+    engine.run();
+
+    EXPECT_EQ(src.presented_errors.size(), std::size_t{0});
+    EXPECT_EQ(src.presented_results.size(), std::size_t{3});
+    bool hasAlice = false, hasBob = false, hasCarolNull = false;
+    for (const auto& r : src.presented_results) {
+        if (r.find("u.name=alice") != std::string::npos &&
+            r.find("o.amt=100") != std::string::npos) hasAlice = true;
+        if (r.find("u.name=bob") != std::string::npos &&
+            r.find("o.amt=200") != std::string::npos) hasBob = true;
+        // carol should still appear with o.amt = NULL.
+        if (r.find("u.name=carol") != std::string::npos &&
+            r.find("o.amt=NULL") != std::string::npos) hasCarolNull = true;
+    }
+    EXPECT(hasAlice);
+    EXPECT(hasBob);
+    EXPECT(hasCarolNull);
+}
+
+TEST(Engine_Loop_JOIN_3Table_Chain) {
+    TransactionManager txnm;
+    LockManager        lkm;
+    DeadlockDetector   dd(lkm);
+    InMemoryStorageEngine storage;
+    ScriptedSource       src;
+
+    // a(x): 1, 2
+    src.cmds.push_back(Command(CommandType::Insert, "a", std::nullopt,
+        Tuple::make({{"x", Value::int64(1)}, {"_id", Value::int64(1)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "a", std::nullopt,
+        Tuple::make({{"x", Value::int64(2)}, {"_id", Value::int64(2)}})));
+    // b(y, ax): b._id=100 has ax=1 (matches a._id=1), b._id=101 has ax=2 (matches a._id=2).
+    src.cmds.push_back(Command(CommandType::Insert, "b", std::nullopt,
+        Tuple::make({{"y", Value::int64(10)}, {"ax", Value::int64(1)}, {"_id", Value::int64(100)}})));
+    src.cmds.push_back(Command(CommandType::Insert, "b", std::nullopt,
+        Tuple::make({{"y", Value::int64(20)}, {"ax", Value::int64(2)}, {"_id", Value::int64(101)}})));
+    // c(z, by): c._id=1000 has by=100 (matches b._id=100).
+    src.cmds.push_back(Command(CommandType::Insert, "c", std::nullopt,
+        Tuple::make({{"z", Value::int64(100)}, {"by", Value::int64(100)}, {"_id", Value::int64(1000)}})));
+
+    Command select(CommandType::Select, "a");
+    select.projections = {"a.x", "b.y", "c.z"};
+    select.joins.push_back({JoinKind::Inner, "b", "a._id", "b.ax"});
+    select.joins.push_back({JoinKind::Inner, "c", "b._id", "c.by"});
+    src.cmds.push_back(std::move(select));
+
+    EngineLoop engine(src, storage, txnm, lkm, dd);
+    engine.run();
+
+    EXPECT_EQ(src.presented_errors.size(), std::size_t{0});
+    EXPECT_EQ(src.presented_results.size(), std::size_t{1});
+    // Only one full chain: a._id=1 -> b._id=100 (ax=1) -> c._id=1000 (by=100).
+    EXPECT(src.presented_results[0].find("a.x=1") != std::string::npos);
+    EXPECT(src.presented_results[0].find("b.y=10") != std::string::npos);
+    EXPECT(src.presented_results[0].find("c.z=100") != std::string::npos);
+}
+

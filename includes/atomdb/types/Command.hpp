@@ -45,6 +45,22 @@ struct OrderBySpec {
     std::optional<bool> nullsFirst = std::nullopt;
 };
 
+// Phase 6.2: JOIN support.
+//
+// JoinKind controls whether unjoined left rows are preserved (Left) or
+// dropped (Inner). JoinClause carries the right table plus the single-
+// equality ON predicate expressed as two fully-qualified columns
+// ("leftTable.col" / "rightTable.col"). The EngineLoop nested-loop executor
+// resolves those qualifiers against the merged tuple at join time.
+enum class JoinKind { Inner, Left };
+
+struct JoinClause {
+    JoinKind kind = JoinKind::Inner;
+    std::string table;
+    std::string leftColumn;   // "a.id"
+    std::string rightColumn;  // "b.user_id"
+};
+
 class Command {
 public:
     CommandType type;
@@ -53,6 +69,7 @@ public:
     std::optional<Tuple> values;
     std::vector<std::string> projections;
     std::vector<OrderBySpec> orderBy;
+    std::vector<JoinClause> joins;  // Phase 6.2
     std::optional<std::size_t> limit;
     std::optional<std::size_t> offset;
     std::optional<TxnId> txnId;
@@ -80,6 +97,7 @@ public:
     Command& withOrderBy(std::vector<OrderBySpec> v) { orderBy = std::move(v); return *this; }
     Command& withLimit(std::size_t v) { limit = v; return *this; }
     Command& withOffset(std::size_t v) { offset = v; return *this; }
+    Command& withJoin(JoinClause j) { joins.push_back(std::move(j)); return *this; }
 
     std::string toString() const {
         const char* type_str = "?";
@@ -115,6 +133,17 @@ public:
         }
         if (limit)  os << " limit=" << *limit;
         if (offset) os << " offset=" << *offset;
+        if (!joins.empty()) {
+            os << " joins=[";
+            for (std::size_t i = 0; i < joins.size(); ++i) {
+                if (i) os << ',';
+                os << (joins[i].kind == JoinKind::Inner ? "Inner" : "Left")
+                   << ':' << joins[i].table
+                   << ':' << joins[i].leftColumn
+                   << '=' << joins[i].rightColumn;
+            }
+            os << "]";
+        }
         if (txnId)   os << " txn=" << txnId->toString();
         return os.str();
     }
