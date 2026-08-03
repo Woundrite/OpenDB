@@ -153,7 +153,11 @@ DEFAULTs.
 ### `atomdb::Command` (`types/Command.hpp`)
 
 The IR for DML operations: `Insert`, `Update`, `Delete`, `Select`. Has
-optional `where` predicate, projections, ORDER BY, LIMIT, OFFSET.
+optional `where` predicate, projections, ORDER BY, LIMIT, OFFSET, and a
+`joins` vector of `JoinClause` records (each carrying `kind` Inner/Left,
+right `table`, and the single-equality ON predicate as two fully-qualified
+columns). Joined tuples carry `<table>.<column>` keys so columns from
+different tables never collide.
 
 ### `atomdb::Predicate` (`types/Predicate.hpp`)
 
@@ -230,7 +234,7 @@ Hand-rolled recursive-descent parser for a small SQL subset. Supported:
 - `CREATE TABLE foo (...) PARTITION BY HASH(col) PARTITIONS N`
 - `DROP TABLE foo`
 - `INSERT INTO foo [cols] VALUES (val,...)` or `DEFAULT VALUES`
-- `SELECT [* | col,...] FROM foo [WHERE <pred>] [ORDER BY col [ASC|DESC],...] [LIMIT n] [OFFSET n]`
+- `SELECT [* | tbl.col,...] FROM foo [INNER|LEFT] JOIN bar ON foo.x = bar.y [WHERE <pred>] [ORDER BY col [ASC|DESC] [NULLS FIRST|LAST],...] [LIMIT n] [OFFSET n]`
 - `UPDATE foo SET col=val,... [WHERE <pred>]`
 - `DELETE FROM foo [WHERE <pred>]`
 - `BEGIN [TRANSACTION]` / `COMMIT` / `ROLLBACK`

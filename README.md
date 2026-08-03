@@ -41,7 +41,7 @@ The build script is **cross-platform** with auto-detection for `g++`,
 
 ```sh
 make           # build/atomdb (REPL) + build/test_runner (unit tests)
-make test      # 190 unit tests across types, core, storage, engine loop, REPL, ...
+make test      # 209 unit tests across types, core, storage, engine loop, REPL, joins, ...
 make smoke     # INSERT -> SELECT round trip in the REPL (milestone 5)
 make run       # launches the REPL with stdin/stdout attached
 make clean     # rm -rf build/
@@ -53,7 +53,7 @@ If `make` is unavailable, use the equivalent PowerShell helper:
 
 ```powershell
 ./build.ps1 build    # build/atomdb
-./build.ps1 test     # 190/190 tests
+./build.ps1 test     # 209/209 tests
 ./build.ps1 smoke    # INSERT -> SELECT round trip
 ./build.ps1 clean
 ```
@@ -73,7 +73,14 @@ curl -X POST http://localhost:8080/query \
 curl -X POST http://localhost:8080/query \
   -H 'Content-Type: application/json' \
   -d '{"type":"query","sql":"SELECT * FROM users WHERE age > 25 ORDER BY name ASC LIMIT 10"}'
+curl -X POST http://localhost:8080/query \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"query","sql":"SELECT u.name, o.amt FROM users u INNER JOIN orders o ON u.id = o.uid WHERE o.amt > 50 ORDER BY u.name ASC"}'
 ```
+
+JOINs use fully-qualified column names in projections, ON, WHERE, and ORDER BY
+(e.g. `u.name`, `o.uid`). LEFT JOIN preserves unjoined left rows with right-side
+columns as NULL. Multi-table chains are supported (`a JOIN b ON ... JOIN c ON ...`).
 
 ### Trivial REPL
 
@@ -96,7 +103,7 @@ Value parsing: integer literals → `Int64`; `"..."`/`'...'` → `Text`; `true`/
 
 ## Test summary
 
-190 tests across:
+209 tests across:
 
 | Suite             | Count | Notes                                                   |
 | ----------------- | ----: | -------------------------------------------------------- |

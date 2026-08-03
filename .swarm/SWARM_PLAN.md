@@ -1,29 +1,52 @@
 # AtomDB
 Swarm: mega
-Phase: 1 [PENDING] | Updated: 2026-07-12T11:36:40.456Z
+Phase: 6 [PENDING] | Updated: 2026-07-31
 
 ---
-## Phase 1: Phase 1-3 (DONE) [PENDING]
-- [ ] 1.0: Already completed: core types, engine, in-memory storage, REPL, smoke test. 46 tests pass. [SMALL]
+
+## Phase 1: Phase 1-3 (DONE) [COMPLETED]
+- [x] 1.0: Already completed: core types, engine, in-memory storage, REPL, smoke test. [SMALL]
 
 ---
-## Phase 2: Phase 4 Items 1-4, 7-8 (DONE) [PENDING]
-- [ ] 2.0: Already completed: extended Value (Blob/Date/Timestamp), Schema/PartitionPolicy, IStorageProvider contract, IAccessPlugin contract, InMemoryStorageProvider composition refactor, Pager.hpp + Pager.cpp with 4KiB CRC32 pages + free-list. 53 tests pass. [SMALL]
+
+## Phase 2: Phase 4 Items 1-4, 7-8 (DONE) [COMPLETED]
+- [x] 2.0: Already completed: extended Value (Blob/Date/Timestamp), Schema/PartitionPolicy, IStorageProvider contract, IAccessPlugin contract, InMemoryStorageProvider composition refactor, Pager.hpp + Pager.cpp with 4 KiB CRC32 pages + free-list. [SMALL]
 
 ---
-## Phase 3: Phase 4 Item 9: BTree + LocalFileStorageProvider [PENDING]
-- [ ] 3.1: Fix Pager::openFile / Pager::Pager constructor to clear the fstream error state after a failed loadHeader read on a freshly created 0-byte file, so the subsequent writeRaw/flushHeader succeeds. Without this fix every brand-new database file fails to initialize on Windows + libstdc++ because failbit/eofbit remain set on the fstream after the short read. [SMALL]
-- [ ] 3.2: Audit and fix BTree.cpp + BTree.hpp so all 14 BTree tests pass: createNew, put+get single row, get missing, staged visibility, committed visibility by visibleSeq, tombstone, multiple versions DESC ordering, scan, empty scan, put 200 rows triggers splits, duplicate put returns false, persistence across Pager instances, text keys lexicographic sort, scan stops when callback returns false. [SMALL]
-- [ ] 3.3: Audit and fix LocalFileStorageProvider.hpp so all 18 LocalFile tests pass: name/capabilities, type vocabulary, engine() non-null, createTable registers schema, duplicate rejection, dropTable, tables() listing, put+get round-trip, auto-key Int64, put 50 rows scan in order, remove creates invisible tombstone after commit, data persists across close+reopen, multiple tables+schemas persist, overwrite persists last visible value, abort leaves table intact, close without open safe, put without open fails, Blob persists across reopen. [SMALL]
-- [ ] 3.4: Finalize build.ps1 fix so the test runner links src/*.obj (except src/main.cpp) alongside test objects. Must remove any pre-existing src/main.obj before linking. Already in working tree; verify and finalize. [SMALL]
-- [ ] 3.5: Run full test suite via build.ps1 test and confirm all 53 existing tests + 14 BTree tests + 18 LocalFile tests = 85 tests pass. Address any remaining failures, especially persistence/reload and commit-then-scan-staged-entry logic. [SMALL]
-- [ ] 3.6: Commit all Phase 4 Item 9 work (BTree.hpp, BTree.cpp, LocalFileStorageProvider.hpp, BTree.test.cpp, LocalFileStorageProvider.test.cpp, Pager.hpp fixes, build.ps1 fix) with a descriptive commit message. [SMALL]
+
+## Phase 3: Phase 4 Item 9: BTree + LocalFileStorageProvider [COMPLETED]
+- [x] 3.1: Fix Pager::openFile / Pager::Pager constructor to clear the fstream error state after a failed loadHeader read on a freshly created 0-byte file. [SMALL]
+- [x] 3.2: Audit and fix BTree.cpp + BTree.hpp so all 14 BTree tests pass. [SMALL]
+- [x] 3.3: Audit and fix LocalFileStorageProvider.hpp so all 18 LocalFile tests pass. [SMALL]
+- [x] 3.4: Finalize build.ps1 fix so the test runner links src/*.obj (except src/main.cpp) alongside test objects. [SMALL]
+- [x] 3.5: Run full test suite via build.ps1 test; all tests pass. [SMALL]
+- [x] 3.6: Commit Phase 4 Item 9 work. [SMALL]
 
 ---
-## Phase 4: Phase 4 Items 5-6, 10+ (REMAINING) [PENDING]
-- [ ] 4.1: Item 5: CachingStorageProvider - read-cache decorator wrapping another IStorageProvider. Declares capability Caching, forwards DDL/engine, intercepts get/scan with in-memory cache keyed by (table, key, visibleSeq). Invalidate on put/remove/commit. New tests CachingStorageProvider.test.cpp. [SMALL]
-- [ ] 4.2: Item 6: ShardedStorageProvider - hash/range/list partitioning across multiple IStorageProvider children. PostgreSQL-style PARTITION BY HASH/RANGE/LIST using Schema::PartitionPolicy. Routes put/get/remove/scan. New tests ShardedStorageProvider.test.cpp. [SMALL]
-- [ ] 4.3: Item 10: SQL parser access plugin - recursive-descent parser turning SQL subset (CREATE TABLE, INSERT, SELECT, UPDATE, DELETE, BEGIN, COMMIT, ROLLBACK, DROP TABLE) into Command objects. ICommandSource or IAccessPlugin/ISession. New tests SqlParser.test.cpp. [SMALL]
-- [ ] 4.4: Item 11+: HTTP API access plugin - minimal HTTP/JSON plugin exposing /query, /begin, /commit, /rollback endpoints mapping to Command objects. Stub if C++23 networking stdlib not available. New tests HttpApi.test.cpp. [SMALL]
-- [ ] 4.5: EngineDispatcher: replace single-threaded EngineLoop with a thread-pool dispatcher accepting ISession from IAccessPlugin; worker threads run concurrently. Honor IStorageProvider::Concurrent capability. New tests EngineDispatcher.test.cpp. [SMALL]
-- [ ] 4.6: Phase 4 final commit and retrospective. Run full suite, update README.md mentioning Phase 4 deliverables, commit. [SMALL]
+
+## Phase 4: Phase 4 Items 5-6, 10+ (REMAINING) [COMPLETED]
+- [x] 4.1: Item 5: CachingStorageProvider - read-cache decorator wrapping another IStorageProvider. Declares capability Caching, forwards DDL/engine, intercepts get/scan with in-memory cache keyed by (table, key, visibleSeq). Invalidate on put/remove/commit. [SMALL]
+- [x] 4.2: Item 6: ShardedStorageProvider - hash/range/list partitioning across multiple IStorageProvider children. PostgreSQL-style PARTITION BY HASH/RANGE/LIST using Schema::PartitionPolicy. Routes put/get/remove/scan. [SMALL]
+- [x] 4.3: Item 10: SQL parser access plugin - recursive-descent parser turning SQL subset (CREATE TABLE, INSERT, SELECT, UPDATE, DELETE, BEGIN, COMMIT, ROLLBACK, DROP TABLE) into Command objects. [SMALL]
+- [x] 4.4: Item 11+: HTTP API access plugin - HTTP/JSON plugin exposing /query, /begin, /commit, /rollback endpoints mapping to Command objects. [SMALL]
+- [x] 4.5: EngineDispatcher: thread-pool dispatcher accepting ISession from IAccessPlugin; worker threads run concurrently. [SMALL]
+- [x] 4.6: Phase 4 final commit and retrospective. [SMALL]
+
+---
+
+## Phase 5: Technical Debt & Production Readiness [COMPLETED]
+- [x] 5.0: Phase 5 tech-debt items 1-21 closed. UPDATE/DELETE via EngineLoop, real HTTP server (multi-threaded async I/O), EngineDispatcher pool, CrashDurable behavior, Range/List partitioning, SQL surface (ORDER BY, LIMIT, OFFSET, DEFAULTs), JSON encoder (Blob base64, ISO-8601), Metrics, backupTo, ADRs, API.md. Test count grew from 149 -> 203, all green. [SMALL]
+
+---
+
+## Phase 6: SQL Surface Expansion + Storage Polish [ACTIVE]
+**Audit note (2026-07-31):** 4 of 6 Phase 6 items are already implemented in the working tree:
+- 6.6 HttpServer select-on-listen-fd -> DONE (acceptor IS io thread 0; listen_fd_ wired via setListenFd)
+- 6.1 ALTER TABLE / AlterSpec -> DONE (Schema.hpp, IStorageProvider::alterTable in InMemory + LocalFile + Sharded, parser handles ADD/DROP/RENAME, tests in LocalFileStorageProvider.test.cpp)
+- 6.3 NULLS FIRST/LAST -> DONE (OrderBySpec::nullsFirst in Command.hpp, EngineLoop.hpp implements PostgreSQL defaults, parser handles syntax, SqlParser.test.cpp + EngineLoop.test.cpp cover)
+- 6.4 BTree per-page recycling -> DONE (BTree.cpp:573 calls pager_.freePage(id); freeListSize + freePageCount tests in Pager.test.cpp + LocalFileStorageProvider.test.cpp)
+
+**Remaining (ordered to avoid conflicts):**
+- [x] 6.2: SQL JOINs - SELECT ... FROM a [INNER|LEFT] JOIN b ON a.x = b.y [WHERE ...] [ORDER BY ...] [LIMIT ...] [OFFSET ...]. Surface change: SqlParser grammar extension + Command::fromTables + nested-loop executor in EngineLoop. No optimizer; full table scan on each side. Tests: INNER basic, LEFT preserves unjoined LEFT rows, ON with predicate, 3-table join, JOIN on InMemory + LocalFile, sharded join. [MEDIUM] -- DONE (2026-07-31). 6 new tests pass; full suite 209/209 green.
+- [ ] 6.5: Pager best-fit allocator (DEFERRED LAST). Every existing Pager caller (BTree.cpp:442, LocalFileStorageProvider.hpp:137, all tests) requests exactly one page per call -- there is no multi-page allocation API and the Pager uses fixed 4 KiB pages. A `std::multimap<size_t, pageId>` slab allocator has zero observable benefit and would force an on-disk format change that risks breaking the 8 Pager + 6 LocalFile + 14 BTree tests that rely on the current singly-linked free-list chain. Defer until a real multi-page allocation consumer exists. [DEFERRED]
+- [ ] 6.7: Phase 6 final commit and retrospective. Run full suite, update README.md mentioning Phase 6 deliverables, commit. [SMALL]
