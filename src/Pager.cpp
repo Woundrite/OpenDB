@@ -4,12 +4,21 @@
 #include <array>
 #include <cassert>
 #include <cstdio>
+#include <cstring>
 #include <stdexcept>
 #include <unordered_set>
 
+#include "atomdb/contracts/IPageAllocator.hpp"
+#include "atomdb/storage/BuddyPageAllocator.hpp"
+
 namespace atomdb {
 
-Pager::Pager(const std::string& uri) {
+Pager::Pager(const std::string& uri,
+             std::unique_ptr<IPageAllocator> allocator)
+    : allocator_(std::move(allocator)) {
+    if (!allocator_) {
+        allocator_ = std::make_unique<BuddyPageAllocator>();
+    }
     openFile(uri);
     if (!loadHeader()) {
         // New file (or corrupted): initialize header.
@@ -20,6 +29,7 @@ Pager::Pager(const std::string& uri) {
         header_.version = VERSION;
         header_.pageCount = 1; // page 0 exists
         header_.freeHead = INVALID_PAGE;
+        std::memset(header_.allocatorHeader, 0, 16);
         flushHeader();
     }
 }
@@ -46,7 +56,8 @@ bool Pager::readPage(PageId id, std::vector<std::uint8_t>& out) {
     return true;
 }
 
-Pager::PageId Pager::writePage(std::optional<PageId> id, const std::vector<std::uint8_t>& data) {
+Pager::PageId Pager::writePage(std::optional<PageId> id,
+                               const std::vector<std::uint8_t>& data) {
     if (data.size() != DATA_PAGE_PAYLOAD_SIZE) {
         throw std::runtime_error("Pager::writePage: data size must equal DATA_PAGE_PAYLOAD_SIZE");
     }
@@ -84,6 +95,8 @@ void Pager::close() {
     if (file_.is_open()) {
         file_.flush();
         fdatasyncFile();
+        // Write header one last time so allocator state is current.
+        flushHeader();
         file_.close();
     }
 }
@@ -139,49 +152,40 @@ std::uint32_t Pager::crc32(const std::uint8_t* data, std::size_t len) {
 }
 
 Pager::PageId Pager::allocatePage() {
-    if (header_.freeHead != INVALID_PAGE) {
-        PageId id = header_.freeHead;
-        // Read the free page to get next pointer.
-        std::vector<std::uint8_t> buf;
-        readRaw(id, buf);
-        PageId next = INVALID_PAGE;
-        std::memcpy(&next, buf.data(), 4);
-        header_.freeHead = next;
-        flushHeader();
-        return id;
-    }
-    // No free pages: extend file.
-    PageId id = header_.pageCount++;
-    flushHeader();
-    return id;
+    return allocator_->allocatePages(1, [this](std::size_t n) {
+        return extendFile(n);
+    });
 }
 
 void Pager::freePage(PageId id) {
     if (id == 0 || id >= header_.pageCount) return;
-    // Write next pointer into the freed page.
-    std::vector<std::uint8_t> page(PAGE_SIZE, 0);
-    std::memcpy(page.data(), &header_.freeHead, 4);
-    writeRaw(id, page);
-    header_.freeHead = id;
-    flushHeader();
+    allocator_->freePages(id, 1);
 }
 
-// Phase 6.4: walk the free-list chain. Each freed page stores the next
-// free-page id in its first 4 bytes. We walk until we hit INVALID_PAGE
-// (or a cycle, defended against). Tests use this to verify dropTable
-// actually returns pages to the pool.
-std::size_t Pager::freeListSize() {
-    std::size_t n = 0;
-    PageId cur = header_.freeHead;
-    std::unordered_set<PageId> seen;
-    while (cur != INVALID_PAGE && cur != 0 && cur < header_.pageCount) {
-        if (!seen.insert(cur).second) break; // cycle defense
-        ++n;
-        std::vector<std::uint8_t> buf(PAGE_SIZE);
-        if (!readRaw(cur, buf)) break;
-        std::memcpy(&cur, buf.data(), 4);
+std::vector<Pager::PageId> Pager::allocatePages(std::size_t n) {
+    if (n == 0) return {};
+    PageId start = allocator_->allocatePages(n, [this](std::size_t m) {
+        return extendFile(m);
+    });
+    std::vector<PageId> result;
+    result.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        result.push_back(start + i);
     }
-    return n;
+    return result;
+}
+
+void Pager::freePages(PageId start, std::size_t n) {
+    if (start == 0 || n == 0 || start + n > header_.pageCount) return;
+    allocator_->freePages(start, n);
+}
+
+std::size_t Pager::freeListSize() {
+    return allocator_->freePageCount();
+}
+
+std::size_t Pager::freeRunCount() {
+    return allocator_->freeRunCount();
 }
 
 bool Pager::loadHeader() {
@@ -194,25 +198,98 @@ bool Pager::loadHeader() {
     std::uint16_t version = 0;
     std::memcpy(&magic, buf.data(), 4);
     std::memcpy(&version, buf.data() + 4, 2);
-    if (magic != MAGIC || version != VERSION) return false;
+    if (magic != MAGIC) return false;
 
     std::memcpy(&header_.pageCount, buf.data() + 8, 4);
-    std::memcpy(&header_.freeHead, buf.data() + 12, 4);
-    return true;
+
+    if (version == 1) {
+        // v1: freeHead at offset 12, no allocator header.
+        std::memcpy(&header_.freeHead, buf.data() + 12, 4);
+        std::memset(header_.allocatorHeader, 0, 16);
+        header_.version = 1;
+        // Migrate to v2: rebuild allocator from freeHead chain, then bump version.
+        migrateV1ToV2();
+        return true;
+    }
+
+    if (version == 2) {
+        // v2: allocatorHeader at offset 12 (16 bytes).
+        std::memcpy(header_.allocatorHeader, buf.data() + 12, 16);
+        header_.version = 2;
+        header_.freeHead = INVALID_PAGE; // unused in v2
+        // Load allocator state from the header bytes.
+        allocator_->loadHeader(header_.allocatorHeader, header_.pageCount);
+        return true;
+    }
+
+    return false; // unknown version
+}
+
+void Pager::migrateV1ToV2() {
+    // Walk the v1 freeHead chain to rebuild allocator state.
+    // 1. First, mark ALL data pages as allocated via onFileExtended.
+    //    This ensures the allocator's internal bitmap is sized correctly.
+    if (header_.pageCount > 1) {
+        allocator_->onFileExtended(1, header_.pageCount - 1);
+    }
+
+    // 2. Walk the v1 freeHead chain to find which pages are actually free.
+    std::vector<bool> isFree(header_.pageCount, false);
+    PageId cur = header_.freeHead;
+    std::unordered_set<PageId> seen;
+    while (cur != INVALID_PAGE && cur != 0 && cur < header_.pageCount) {
+        if (!seen.insert(cur).second) break; // cycle defense
+        isFree[cur] = true;
+        std::vector<std::uint8_t> pageBuf(PAGE_SIZE);
+        if (!readRaw(cur, pageBuf)) break;
+        std::memcpy(&cur, pageBuf.data(), 4);
+    }
+
+    // 3. Find contiguous free runs and call freePages for each.
+    //    This will mark those pages as free and push them into the buddy structure.
+    PageId runStart = INVALID_PAGE;
+    std::size_t runLen = 0;
+    for (PageId i = 1; i < header_.pageCount; ++i) {
+        if (isFree[i]) {
+            if (runLen == 0) {
+                runStart = i;
+                runLen = 1;
+            } else {
+                runLen++;
+            }
+        } else {
+            if (runLen > 0) {
+                allocator_->freePages(runStart, runLen);
+                runLen = 0;
+            }
+        }
+    }
+    if (runLen > 0) {
+        allocator_->freePages(runStart, runLen);
+    }
+
+    // 4. Bump version to v2 and flush header so on-disk format is v2
+    header_.version = VERSION;
+    flushHeader();
 }
 
 void Pager::flushHeader() {
     std::vector<std::uint8_t> page(PAGE_SIZE, 0);
     std::memcpy(page.data(), &header_.magic, 4);
     std::memcpy(page.data() + 4, &header_.version, 2);
+    // reserved0 at [6..8) stays zero.
     std::memcpy(page.data() + 8, &header_.pageCount, 4);
-    std::memcpy(page.data() + 12, &header_.freeHead, 4);
+    if (header_.version == 1) {
+        std::memcpy(page.data() + 12, &header_.freeHead, 4);
+    } else {
+        // v2: allocator header at offset 12.
+        allocator_->serializeHeader(header_.allocatorHeader);
+        std::memcpy(page.data() + 12, header_.allocatorHeader, 16);
+    }
     writeRaw(0, page);
 }
 
 void Pager::fdatasyncFile() {
-    // Portable: std::fstream::sync() calls pubsync() on the underlying buffer,
-    // which on POSIX typically does fdatasync/fsync, on Windows does FlushFileBuffers.
     file_.sync();
 }
 
@@ -235,6 +312,23 @@ void Pager::openFile(const std::string& uri) {
         }
     }
     // std::ios::binary ensures no CRLF translation on Windows.
+}
+
+Pager::PageId Pager::extendFile(std::size_t n) {
+    if (n == 0) return INVALID_PAGE;
+    // Extend by n pages. The new pages start at current pageCount.
+    PageId start = header_.pageCount;
+    std::vector<std::uint8_t> zero(PAGE_SIZE, 0);
+    file_.seekp(0, std::ios::end);
+    for (std::size_t i = 0; i < n; ++i) {
+        file_.write(reinterpret_cast<const char*>(zero.data()), PAGE_SIZE);
+        if (!file_) throw std::runtime_error("Pager::extendFile: failed to extend file");
+        ++header_.pageCount;
+    }
+    flushHeader();
+    // Notify allocator of new allocated pages.
+    allocator_->onFileExtended(start, n);
+    return start;
 }
 
 } // namespace atomdb
