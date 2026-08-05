@@ -3,12 +3,15 @@
 A C++23 database engine implementing the layered architecture described in
 `.swarm/spec.md`: a **fixed non-pluggable core** (transaction management,
 locking, deadlock detection, command dispatch) with **pluggable edges**
-(the front-end `ICommandSource` and the back-end `IStorageProvider`).
+(the front-end `ICommandSource` and the back-end `IStorageProvider`),
+and a **pluggable page allocator** behind the storage Pager.
 
 This build lands milestones 1–5 from the spec §7 roadmap plus most of
 Phase 5 production-readiness work (HTTP server, row-level locks,
 column-level DEFAULTs, sharded recovery, point-in-time backup,
-operational metrics, SQL features, free-list reuse, concurrency stress).
+operational metrics, SQL features, free-list reuse, concurrency stress),
+and Phase 6.1 (ALTER TABLE), 6.2 (SQL JOINs), 6.4 (BTree per-page recycling),
+6.5 (plugable buddy allocator).
 
 ## Architecture
 
@@ -103,7 +106,7 @@ Value parsing: integer literals → `Int64`; `"..."`/`'...'` → `Text`; `true`/
 
 ## Test summary
 
-209 tests across:
+216 tests across:
 
 | Suite             | Count | Notes                                                   |
 | ----------------- | ----: | -------------------------------------------------------- |
@@ -112,7 +115,7 @@ Value parsing: integer literals → `Int64`; `"..."`/`'...'` → `Text`; `true`/
 | Predicate         |     8 | AND/OR short-circuit, deep clone, missing-column false  |
 | Core              |    24 | TX manager, lock matrix, row-level locks, deadlock       |
 | Storage           |     8 | Append-only versioned records, MVCC visible_seq cutoff   |
-| Pager             |     8 | Free-list push/pop, LIFO order, survives reopen         |
+| Pager             |    15 | Free-list push/pop, LIFO order, survives reopen, buddy  |
 | BTree             |    14 | Put/remove, split, ordered scan, MVCC                   |
 | EngineLoop        |     8 | End-to-end dispatch, ORDER BY/LIMIT/OFFSET              |
 | EngineDispatcher  |     4 | Metrics snapshot shape, shutdown, 8-session concurrent   |
@@ -124,7 +127,7 @@ Value parsing: integer literals → `Int64`; `"..."`/`'...'` → `Text`; `true`/
 | JsonEncoder       |     7 | Base64/ISO-8601/array-of-arrays                          |
 | SqlParser         |    34 | DDL/DML/TXN, DEFAULT, WHERE/ORDER BY/LIMIT/OFFSET        |
 | Stress            |     3 | 8-thread INSERT, 4-thread REMOVE, 6-thread reads         |
-| **TOTAL**         | **190** | All pass under g++ 14.2.0 C++23 strict warnings        |
+| **TOTAL**         | **216** | All pass under g++ 14.2.0 C++23 strict warnings        |
 
 The deadlock detector test uses real concurrent blocking threads to construct
 a genuine two-txn 2-cycle and verify the origin txn is reported as the victim

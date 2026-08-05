@@ -269,6 +269,69 @@ child `IStorageProvider*`. Schema is propagated to all shards.
 Read-through + write-through cache decorator. Wraps another
 `IStorageEngine*`.
 
+### `atomdb::IPageAllocator` (`contracts/IPageAllocator.hpp`)
+
+Pluggable page allocation strategy behind the Pager. The Pager owns an
+`std::unique_ptr<IPageAllocator>` (defaults to `BuddyPageAllocator`).
+
+```cpp
+class IPageAllocator {
+public:
+    using PageId = std::uint32_t;
+    static constexpr PageId INVALID_PAGE = 0xFFFFFFFFu;
+
+    // Allocate `n` contiguous pages (n >= 1). Returns first PageId of run.
+    virtual PageId allocatePages(std::size_t n,
+        std::function<PageId(std::size_t)> extendFile) = 0;
+
+    // Free a contiguous run of `n` pages starting at `start`.
+    virtual void freePages(PageId start, std::size_t n) = 0;
+
+    // Total free pages (test diagnostic).
+    virtual std::size_t freePageCount() const = 0;
+
+    // Number of distinct free runs (test diagnostic).
+    virtual std::size_t freeRunCount() const = 0;
+
+    // File was extended by `n` pages at `startPageId`.
+    virtual void onFileExtended(PageId startPageId, std::size_t n) = 0;
+
+    // Serialize 16-byte allocator header (written to page 0 offset 12).
+    virtual void serializeHeader(std::uint8_t out[16]) const = 0;
+
+    // Load 16-byte allocator header from page 0 offset 12.
+    virtual void loadHeader(const std::uint8_t in[16], PageId pageCount) = 0;
+
+    virtual ~IPageAllocator() = default;
+};
+```
+
+**Built-in implementation** (`storage/BuddyPageAllocator.hpp`):
+
+- **Binary buddy allocator** with slab classes 1, 2, 4, 8, 16, 32, 64, 128, 256 pages.
+- O(1) allocation/free under a single mutex.
+- Internal fragmentation ≤ 50% (round-up to power of two); coalescing on free
+  recovers adjacent runs.
+- On-disk format v2: page 0 offset 12 holds 16-byte diagnostic header
+  (`maxClass`, `runCount`); the v1 singly-linked free-list chain is preserved
+  in freed pages for backward compatibility. Migration from v1 files is
+  automatic on open.
+
+**Usage**:
+```cpp
+auto pager = std::make_unique<Pager>(path);           // uses BuddyPageAllocator
+auto pager = std::make_unique<Pager>(path,
+    std::make_unique<SlabClassPageAllocator>());      // future swap
+```
+
+Tests: `Pager_Buddy_AllocatePages_One_Returns_First_Free`,
+`Pager_Buddy_AllocatePages_Two_Requests_2p_From_2p_Slab`,
+`Pager_Buddy_AllocatePages_Three_Rounds_Up_To_4p_Slab`,
+`Pager_Buddy_Free_Coalesces_Two_Adjacent_2p_Into_4p`,
+`Pager_Buddy_Free_Recursively_Coalesces_To_Max_Class`,
+`Pager_Buddy_V1_To_V2_Migration_Preserves_Allocations_And_Frees`,
+`BTree_Large_Row_Stored_Across_MultiPage_Run_And_Freed_On_Delete`.
+
 ## JSON encoding
 
 ### `atomdb::JsonEncoder` (`frontend/JsonEncoder.hpp`)
