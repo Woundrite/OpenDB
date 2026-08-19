@@ -1,6 +1,7 @@
 #ifndef ATOMDB_LOCK_MANAGER_HPP
 #define ATOMDB_LOCK_MANAGER_HPP
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
@@ -18,6 +19,15 @@ namespace atomdb {
 enum class LockMode {
     Shared,
     Exclusive,
+};
+
+// Result of a non-blocking / bounded-wait lock acquisition attempt.
+//   Granted   - lock was granted (possibly after waiting up to timeout).
+//   TimedOut  - could not grant within the timeout; caller should abort.
+// Callers that want to block forever use acquire()/acquireKey() instead.
+enum class LockAcquireResult {
+    Granted,
+    TimedOut,
 };
 
 // Hash for ResourceKey so it can be used as an unordered_map key.
@@ -79,6 +89,62 @@ public:
             }
         }
         grantUnlocked(txn, key, mode);
+    }
+
+    // Bounded-wait acquire on a table-level lock. Returns LockAcquireResult;
+    // never blocks longer than `timeout`. Pass timeout == std::chrono::milliseconds::max()
+    // (or a large value) for the legacy forever-block behavior.
+    LockAcquireResult tryAcquire(TxnId txn,
+                                  const std::string& table,
+                                  LockMode mode,
+                                  std::chrono::milliseconds timeout) {
+        return tryAcquireKey(txn, tableKey(table), mode, timeout);
+    }
+
+    // Bounded-wait acquire on a specific resource. Inserts this txn into the
+    // wait queue under mutex_ and waits up to `timeout`. Returns TimedOut
+    // (without granting the lock and without leaving the txn in the waiters
+    // list) if the wait exceeds `timeout`; the caller should abort the txn
+    // and surface DbError::lockTimeout to its caller.
+    LockAcquireResult tryAcquireKey(TxnId txn,
+                                     const ResourceKey& key,
+                                     LockMode mode,
+                                     std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lk(mutex_);
+        // Fast path: immediately grantable.
+        if (grantableUnlocked(txn, key, mode)) {
+            grantUnlocked(txn, key, mode);
+            return LockAcquireResult::Granted;
+        }
+        // Register as waiter.
+        waiters_[key].push_back(Waiter{txn, mode});
+        // Bound the wait. wait_for returns false on timeout; spurious wakeups
+        // are handled by re-checking grantableUnlocked in the loop.
+        bool granted = false;
+        auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (!granted) {
+            if (cv_.wait_until(lk, deadline) == std::cv_status::timeout) {
+                // Out of time. Remove our waiter entry and return TimedOut.
+                auto& w = waiters_[key];
+                for (auto it = w.begin(); it != w.end(); ++it) {
+                    if (it->txn == txn) { w.erase(it); break; }
+                }
+                if (w.empty()) waiters_.erase(key);
+                return LockAcquireResult::TimedOut;
+            }
+            if (grantableUnlocked(txn, key, mode)) {
+                granted = true;
+                break;
+            }
+            // Spurious wakeup: continue waiting.
+        }
+        // Remove our waiter entry and grant.
+        auto& w = waiters_[key];
+        for (auto it = w.begin(); it != w.end(); ++it) {
+            if (it->txn == txn) { w.erase(it); break; }
+        }
+        grantUnlocked(txn, key, mode);
+        return LockAcquireResult::Granted;
     }
 
     // Release every lock held by `txn` across all tables/rows, then notify

@@ -1,6 +1,7 @@
 #ifndef ATOMDB_HTTP_API_HPP
 #define ATOMDB_HTTP_API_HPP
 
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -46,10 +47,18 @@ namespace atomdb {
 //   {"success":true} // for commit/rollback
 class HttpApiAccessPlugin : public IAccessPlugin {
 public:
-    HttpApiAccessPlugin() : parser_(std::make_unique<SqlParser>()), opened_(false) {}
+    // Constructor accepting shared core components
+    HttpApiAccessPlugin(TransactionManager& txnm,
+                         LockManager& lkm,
+                         DeadlockDetector& dd,
+                         std::unique_ptr<SqlParser> parser = std::make_unique<SqlParser>())
+        : parser_(std::move(parser)), opened_(false), txnm_(txnm), lockMgr_(lkm), deadlock_(dd) {}
 
     // ---- IAccessPlugin ------------------------------------------------------
     std::string name() const override { return "http-api"; }
+    std::string describeServer() const override {
+        return "AtomDB HTTP/JSON API stub (no socket binding in v0.1)";
+    }
     AccessMode mode() const override { return AccessMode::Server; }
     std::uint32_t capabilities() const override {
         return static_cast<std::uint32_t>(AccessCapability::JsonWire)
@@ -86,17 +95,13 @@ public:
         }
     }
 
-    std::string describeServer() const override {
-        return "AtomDB HTTP/JSON API stub (no socket binding in v0.1)";
-    }
-
     // ---- Test / direct invocation API --------------------------------------
     // Not part of IAccessPlugin; used by tests to simulate a request.
     std::string handleRequest(const std::string& requestJson) {
         if (!opened_) return JsonEncoder::encode(DbError::internal("plugin not open"));
         if (!dispatcher_) return JsonEncoder::encode(DbError::internal("no dispatcher"));
 
-        // Parse request
+        // Parse request using the new proper JSON parser
         auto req = parseJsonRequest(requestJson);
         if (!req) return JsonEncoder::encode(DbError::parseError("invalid request JSON"));
         return executeRequest(*req);
@@ -108,45 +113,10 @@ private:
     IEngineDispatcher* dispatcher_ = nullptr;
     bool opened_ = false;
 
-    // Local core components for direct execution
-    TransactionManager txnm_;
-    LockManager lockMgr_;
-    DeadlockDetector deadlock_{lockMgr_};
-
-    struct JsonRequest {
-        std::string type;           // "query" | "begin" | "commit" | "rollback"
-        std::string sql;            // for query
-        std::optional<std::uint64_t> txnId; // optional
-    };
-
-    std::optional<JsonRequest> parseJsonRequest(const std::string& json) {
-        JsonRequest req;
-        auto findKey = [&](const std::string& key) -> std::optional<std::string> {
-            std::string search = "\"" + key + "\"";
-            auto p = json.find(search);
-            if (p == std::string::npos) return std::nullopt;
-            p = json.find(':', p);
-            if (p == std::string::npos) return std::nullopt;
-            p = json.find_first_not_of(" \t\n\r", p + 1);
-            if (p == std::string::npos) return std::nullopt;
-            if (json[p] == '"') {
-                auto end = json.find('"', p + 1);
-                if (end == std::string::npos) return std::nullopt;
-                return json.substr(p + 1, end - p - 1);
-            }
-            auto end = json.find_first_of(",}", p);
-            if (end == std::string::npos) return std::nullopt;
-            return json.substr(p, end - p);
-        };
-        auto type = findKey("type");
-        if (!type) return std::nullopt;
-        req.type = *type;
-        if (auto s = findKey("sql")) req.sql = *s;
-        if (auto t = findKey("txnId")) {
-            try { req.txnId = std::stoull(*t); } catch (...) {}
-        }
-        return req;
-    }
+    // Shared core components (non-owning references)
+    TransactionManager& txnm_;
+    LockManager& lockMgr_;
+    DeadlockDetector& deadlock_;
 
     std::string executeRequest(const JsonRequest& req) {
         if (req.type == "begin") {
@@ -161,6 +131,8 @@ private:
             }
             auto err = storage_->engine()->commit(txnId, txnm_.visibleSeq());
             if (!err.isSentinel()) return JsonEncoder::encode(err);
+            // Release the lock held for this transaction
+            lockMgr_.release(txnId);
             return "{\"success\":true}";
         }
         if (req.type == "rollback") {
@@ -168,6 +140,8 @@ private:
             TxnId txnId{*req.txnId};
             storage_->engine()->abort(txnId);
             txnm_.abortTxn(txnId);
+            // Release the lock held for this transaction
+            lockMgr_.release(txnId);
             return "{\"success\":true}";
         }
         if (req.type == "query") {
@@ -220,8 +194,14 @@ private:
             return JsonEncoder::encode(DbError::deadlock("cycle detected for " + txnId.toString()));
         }
 
-        // Acquire lock (blocks until granted)
-        lockMgr_.acquire(txnId, cmd.table, mode);
+        // Acquire lock with timeout (default 50s per spec C.5)
+        using atomdb::LockAcquireResult;
+        auto acquireResult = lockMgr_.tryAcquire(txnId, cmd.table, mode, std::chrono::seconds(50));
+        if (acquireResult == LockAcquireResult::TimedOut) {
+            txnm_.abortTxn(txnId);
+            lockMgr_.release(txnId);
+            return JsonEncoder::encode(DbError::lockTimeout("lock wait exceeded 50000 ms"));
+        }
 
         ResultSet rs;
         std::optional<DbError> error_opt;
@@ -325,16 +305,20 @@ private:
             }
         }
 
-        // Release the lock
-        lockMgr_.release(txnId);
-
-        if (error_opt) return JsonEncoder::encode(*error_opt);
-
-        // Auto-commit if needed
+        // Only release lock and auto-commit if NOT in an explicit transaction
         if (auto_commit) {
+            lockMgr_.release(txnId);
+
+            if (error_opt) return JsonEncoder::encode(*error_opt);
+
+            // Auto-commit
             txnm_.commitTxn(txnId);
             auto commitErr = storage_->engine()->commit(txnId, txnm_.visibleSeq());
             if (!commitErr.isSentinel()) return JsonEncoder::encode(commitErr);
+        } else {
+            // In explicit transaction: don't release lock, don't auto-commit
+            // Lock will be released on COMMIT/ROLLBACK
+            if (error_opt) return JsonEncoder::encode(*error_opt);
         }
         return JsonEncoder::encode(rs);
     }

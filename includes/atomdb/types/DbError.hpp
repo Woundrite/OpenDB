@@ -10,6 +10,8 @@ enum class DbErrorCode {
     NotFound,
     Deadlock,
     LockBusy,
+    LockTimeout,
+    QueryTimeout,
     ParseError,
     NotSupported,
     Internal,
@@ -35,6 +37,12 @@ public:
     static DbError lockBusy(std::string msg = "") {
         return DbError(DbErrorCode::LockBusy, std::move(msg));
     }
+    static DbError lockTimeout(std::string msg = "") {
+        return DbError(DbErrorCode::LockTimeout, std::move(msg));
+    }
+    static DbError queryTimeout(std::string msg = "") {
+        return DbError(DbErrorCode::QueryTimeout, std::move(msg));
+    }
     static DbError parseError(std::string msg = "") {
         return DbError(DbErrorCode::ParseError, std::move(msg));
     }
@@ -56,6 +64,8 @@ public:
             case DbErrorCode::NotFound:     name = "NotFound";     break;
             case DbErrorCode::Deadlock:     name = "Deadlock";     break;
             case DbErrorCode::LockBusy:     name = "LockBusy";     break;
+            case DbErrorCode::LockTimeout:  name = "LockTimeout";  break;
+            case DbErrorCode::QueryTimeout: name = "QueryTimeout"; break;
             case DbErrorCode::ParseError:   name = "ParseError";   break;
             case DbErrorCode::NotSupported: name = "NotSupported"; break;
             case DbErrorCode::Internal:     name = "Internal";     break;

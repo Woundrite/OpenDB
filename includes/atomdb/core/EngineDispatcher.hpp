@@ -29,12 +29,18 @@ class EngineDispatcher : public IEngineDispatcher {
 public:
     // workerCount: number of worker threads (default: hardware_concurrency)
     // core: pointers to core engine components needed by workers
+    // lockTimeout: maximum time a transaction waits for a lock (default 50s);
+    //              if exceeded, the transaction is aborted with DbError::lockTimeout.
+    // queryTimeout: maximum cumulative execution time for a session (default 0 = no timeout);
+    //               if exceeded, the transaction is aborted with DbError::queryTimeout.
     explicit EngineDispatcher(
         std::size_t workerCount,
         IStorageProvider* storage,
         TransactionManager& txnm,
         LockManager& lockMgr,
-        DeadlockDetector& deadlock
+        DeadlockDetector& deadlock,
+        std::chrono::milliseconds lockTimeout = std::chrono::seconds(50),
+        std::chrono::milliseconds queryTimeout = std::chrono::milliseconds(0)
     );
 
     ~EngineDispatcher() override;
@@ -82,6 +88,11 @@ private:
     // Execute a single session to completion
     void runSession(std::unique_ptr<ISession> session);
 
+    // Check if query timeout has been exceeded.
+    // Returns true if timeout exceeded and session was notified.
+    bool checkQueryTimeout(ISession* session,
+                           const std::chrono::steady_clock::time_point& startTime);
+
     // Phase 5 Item 15: record one session's latency into the histogram.
     void recordLatency(std::uint64_t micros);
 
@@ -90,6 +101,8 @@ private:
     TransactionManager& txnm_;
     LockManager& lockMgr_;
     DeadlockDetector& deadlock_;
+    std::chrono::milliseconds lockTimeout_;
+    std::chrono::milliseconds queryTimeout_;
 
     // Thread pool
     std::vector<std::jthread> workers_;

@@ -50,7 +50,7 @@ public:
     std::optional<Command> nextCommand() override {
         if (requestProcessed_) return std::nullopt; // EOF after one request
         requestProcessed_ = true;
-        // Parse the JSON request and return a Command or special txn command
+        // Parse the JSON request using the new proper JSON parser
         auto req = parseJsonRequest(ctx_.requestJson);
         if (!req) {
             // Parse error - will handle in run() by presenting error
@@ -77,43 +77,6 @@ public:
     bool isClosed() const noexcept { return closed_; }
 
 private:
-    struct JsonRequest {
-        std::string type;           // "query" | "begin" | "commit" | "rollback"
-        std::string sql;            // for query
-        std::optional<std::uint64_t> txnId; // optional
-    };
-
-    // Parse the simple JSON request
-std::optional<JsonRequest> parseJsonRequest(const std::string& requestJson) {
-            JsonRequest req;
-            auto findKey = [&](const std::string& key) -> std::optional<std::string> {
-                std::string search = "\"" + key + "\"";
-                auto p = requestJson.find(search);
-                if (p == std::string::npos) return std::nullopt;
-                p = requestJson.find(':', p);
-                if (p == std::string::npos) return std::nullopt;
-                p = requestJson.find_first_not_of(" \t\n\r", p + 1);
-                if (p == std::string::npos) return std::nullopt;
-                if (requestJson[p] == '"') {
-                    auto end = requestJson.find('"', p + 1);
-                    if (end == std::string::npos) return std::nullopt;
-                    return requestJson.substr(p + 1, end - p - 1);
-                }
-                auto end = requestJson.find_first_of(",}", p);
-                if (end == std::string::npos) return std::nullopt;
-                return requestJson.substr(p, end - p);
-            };
-
-        auto type = findKey("type");
-        if (!type) return std::nullopt;
-        req.type = *type;
-        if (auto s = findKey("sql")) req.sql = *s;
-        if (auto t = findKey("txnId")) {
-            try { req.txnId = std::stoull(*t); } catch (...) {}
-        }
-        return req;
-    }
-
     // Convert JsonRequest to Command or special txn control
     std::optional<Command> convertRequestToCommand(const JsonRequest& req) {
         if (req.type == "begin") return Command(CommandType::Insert, "__begin__", std::nullopt, std::nullopt, {}, std::nullopt);

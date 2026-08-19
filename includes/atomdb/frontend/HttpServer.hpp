@@ -12,6 +12,9 @@
 
 #include "atomdb/contracts/IStorageProvider.hpp"
 #include "atomdb/core/EngineDispatcher.hpp"
+#include "atomdb/core/TransactionManager.hpp"
+#include "atomdb/core/LockManager.hpp"
+#include "atomdb/core/DeadlockDetector.hpp"
 
 namespace atomdb {
 
@@ -50,6 +53,7 @@ public:
         std::size_t maxConnections = 1024;
         std::chrono::milliseconds readTimeout{5000};
         std::chrono::milliseconds writeTimeout{5000};
+        std::size_t maxBodySize = 10 * 1024 * 1024; // 10 MB default (I.7)
         // TLS configuration (optional). If tlsContext is non-null the
         // server wraps io reads/writes with SSL.
         void* tlsContext = nullptr;            // SSL_CTX* ; opaque in this header
@@ -65,7 +69,13 @@ public:
         std::atomic<std::uint64_t> maxLatencyMicros{0};
     };
 
-HttpServer(IStorageProvider* storage, IEngineDispatcher* dispatcher);
+    // Constructor with shared core components
+    HttpServer(IStorageProvider* storage,
+               IEngineDispatcher* dispatcher,
+               TransactionManager& txnm,
+               LockManager& lkm,
+               DeadlockDetector& dd);
+
     ~HttpServer();
 
     HttpServer(const HttpServer&) = delete;
@@ -92,10 +102,14 @@ HttpServer(IStorageProvider* storage, IEngineDispatcher* dispatcher);
 private:
     IStorageProvider* storage_;
     IEngineDispatcher* dispatcher_;
+    TransactionManager& txnm_;
+    LockManager& lockMgr_;
+    DeadlockDetector& deadlock_;
     Config cfg_{};
     std::atomic<bool> running_{false};
     std::atomic<std::uint16_t> bound_port_{0};
     Stats stats_;
+    std::atomic<std::size_t> activeConnections_{0};
 
     SocketHandle listen_fd_ = -1;
     std::vector<std::thread> io_threads_;
@@ -110,6 +124,8 @@ private:
     void handleCommit(SocketHandle fd, const std::string& bodyJson);
     void handleRollback(SocketHandle fd, const std::string& bodyJson);
     void recordLatency(int statusCode);
+    bool tryAcquireConnection();
+    void releaseConnection();
 };
 
 // Render helpers (cross-TU).

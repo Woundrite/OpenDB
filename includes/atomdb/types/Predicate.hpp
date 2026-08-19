@@ -24,6 +24,8 @@ enum class ComparisonOp {
     LessEquals,
     Greater,
     GreaterEquals,
+    IsNull,
+    IsNotNull,
 };
 
 class PredicateNode {
@@ -52,16 +54,27 @@ public:
 
     bool evaluate(const Tuple& row) const override {
         auto opt = row.maybeGet(column_);
-        if (!opt) return false;
+        if (!opt) {
+            // Column missing from row - treat as NULL for IS NULL / IS NOT NULL
+            switch (op_) {
+                case ComparisonOp::IsNull:     return true;
+                case ComparisonOp::IsNotNull:  return false;
+                default:                       return false;
+            }
+        }
         const auto& rowVal = *opt;
-        const auto c = rowVal.compare(operand_);
+        const bool isNull = rowVal.isNull();
+        const bool operandIsNull = operand_.isNull();
+        
         switch (op_) {
-            case ComparisonOp::Equals:        return c == 0;
-            case ComparisonOp::NotEquals:     return c != 0;
-            case ComparisonOp::Less:          return c <  0;
-            case ComparisonOp::LessEquals:    return c <= 0;
-            case ComparisonOp::Greater:      return c >  0;
-            case ComparisonOp::GreaterEquals: return c >= 0;
+            case ComparisonOp::Equals:        return !isNull && !operandIsNull && rowVal.compare(operand_) == 0;
+            case ComparisonOp::NotEquals:     return !isNull && !operandIsNull && rowVal.compare(operand_) != 0;
+            case ComparisonOp::Less:          return !isNull && !operandIsNull && rowVal.compare(operand_) <  0;
+            case ComparisonOp::LessEquals:    return !isNull && !operandIsNull && rowVal.compare(operand_) <= 0;
+            case ComparisonOp::Greater:       return !isNull && !operandIsNull && rowVal.compare(operand_) >  0;
+            case ComparisonOp::GreaterEquals: return !isNull && !operandIsNull && rowVal.compare(operand_) >= 0;
+            case ComparisonOp::IsNull:        return isNull;
+            case ComparisonOp::IsNotNull:     return !isNull;
         }
         return false; // unreachable
     }
@@ -179,12 +192,18 @@ private:
 inline std::string ComparisonNode::toString() const {
     const char* op_str = "?";
     switch (op_) {
-        case ComparisonOp::Equals:        op_str = "=";  break;
-        case ComparisonOp::NotEquals:     op_str = "!="; break;
-        case ComparisonOp::Less:          op_str = "<";  break;
-        case ComparisonOp::LessEquals:    op_str = "<="; break;
-        case ComparisonOp::Greater:      op_str = ">";  break;
-        case ComparisonOp::GreaterEquals: op_str = ">="; break;
+        case ComparisonOp::Equals:        op_str = "=";       break;
+        case ComparisonOp::NotEquals:     op_str = "!=";      break;
+        case ComparisonOp::Less:          op_str = "<";       break;
+        case ComparisonOp::LessEquals:    op_str = "<=";      break;
+        case ComparisonOp::Greater:       op_str = ">";       break;
+        case ComparisonOp::GreaterEquals: op_str = ">=";      break;
+        case ComparisonOp::IsNull:        op_str = "IS NULL"; break;
+        case ComparisonOp::IsNotNull:     op_str = "IS NOT NULL"; break;
+    }
+    // For IS NULL / IS NOT NULL, the operand is not printed
+    if (op_ == ComparisonOp::IsNull || op_ == ComparisonOp::IsNotNull) {
+        return "(" + column_ + " " + op_str + ")";
     }
     return "(" + column_ + " " + op_str + " " + operand_.toString() + ")";
 }
