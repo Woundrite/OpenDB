@@ -17,13 +17,15 @@
 namespace atomdb {
 
 EngineDispatcher::EngineDispatcher(
-    std::size_t workerCount,
-    IStorageProvider* storage,
-    TransactionManager& txnm,
-    LockManager& lockMgr,
-    DeadlockDetector& deadlock
-) : storage_(storage), txnm_(txnm), lockMgr_(lockMgr), deadlock_(deadlock) {
-    if (workerCount == 0) workerCount = std::thread::hardware_concurrency();
+        std::size_t workerCount,
+        IStorageProvider* storage,
+        TransactionManager& txnm,
+        LockManager& lockMgr,
+        DeadlockDetector& deadlock,
+        std::chrono::milliseconds lockTimeout,
+        std::chrono::milliseconds queryTimeout
+    ) : storage_(storage), txnm_(txnm), lockMgr_(lockMgr), deadlock_(deadlock),
+        lockTimeout_(lockTimeout), queryTimeout_(queryTimeout) {
     if (workerCount == 0) workerCount = 1;
 
     running_.store(true);
@@ -144,8 +146,15 @@ void EngineDispatcher::runSession(std::unique_ptr<ISession> session) {
             continue;
         }
 
-        // Acquire lock (blocks until granted)
-        lockMgr_.acquire(txnId, cmd.table, mode);
+        // Acquire lock with timeout
+        using atomdb::LockAcquireResult;
+        auto acquireResult = lockMgr_.tryAcquire(txnId, cmd.table, mode, lockTimeout_);
+        if (acquireResult == LockAcquireResult::TimedOut) {
+            txnm_.abortTxn(txnId);
+            session->present(DbError::lockTimeout("lock wait exceeded " + std::to_string(lockTimeout_.count()) + " ms"));
+            metrics_.sessionsFailed.fetch_add(1);
+            continue;
+        }
 
         // Dispatch
         ResultSet rs;

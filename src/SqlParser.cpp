@@ -786,6 +786,10 @@ std::unique_ptr<PredicateNode> SqlParser::parsePrimExpr() {
         error_ = "expected comparison operator";
         return nullptr;
     }
+    // IS NULL / IS NOT NULL don't have a value literal
+    if (*op == ComparisonOp::IsNull || *op == ComparisonOp::IsNotNull) {
+        return ComparisonNode::make(*col, *op, Value::null());
+    }
     auto val = consumeValueLiteral();
     if (!val) return nullptr;
     return ComparisonNode::make(*col, *op, *val);
@@ -793,6 +797,20 @@ std::unique_ptr<PredicateNode> SqlParser::parsePrimExpr() {
 
 std::optional<ComparisonOp> SqlParser::parseComparisonOp() {
     skipWhitespaceAndComments();
+    // IS NULL / IS NOT NULL (two-word operators)
+    if (consumeKeyword("IS")) {
+        skipWhitespaceAndComments();
+        if (consumeKeyword("NULL")) return ComparisonOp::IsNull;
+        if (consumeKeyword("NOT")) {
+            skipWhitespaceAndComments();
+            if (consumeKeyword("NULL")) return ComparisonOp::IsNotNull;
+            error_ = "expected NULL after IS NOT";
+            return std::nullopt;
+        }
+        error_ = "expected NULL or NOT NULL after IS";
+        return std::nullopt;
+    }
+    // Single-symbol operators
     if (consumeSymbol("=")) return ComparisonOp::Equals;
     if (consumeSymbol("!=")) return ComparisonOp::NotEquals;
     if (consumeSymbol("<=")) return ComparisonOp::LessEquals;

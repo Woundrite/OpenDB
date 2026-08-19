@@ -76,17 +76,37 @@ bool splitMethodPath(const std::string& requestLine,
 // HttpServer
 // ---------------------------------------------------------------------------
 
-HttpServer::HttpServer(IStorageProvider* storage, IEngineDispatcher* dispatcher)
-    : storage_(storage), dispatcher_(dispatcher) {}
+HttpServer::HttpServer(IStorageProvider* storage,
+               IEngineDispatcher* dispatcher,
+               TransactionManager& txnm,
+               LockManager& lkm,
+               DeadlockDetector& dd)
+    : storage_(storage), dispatcher_(dispatcher),
+      txnm_(txnm), lockMgr_(lkm), deadlock_(dd), stats_{} {}
 
 HttpServer::~HttpServer() {
     stop();
     join();
 }
 
+bool HttpServer::tryAcquireConnection() {
+    std::size_t current = activeConnections_.load();
+    while (current < cfg_.maxConnections) {
+        if (activeConnections_.compare_exchange_weak(current, current + 1)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void HttpServer::releaseConnection() {
+    activeConnections_.fetch_sub(1);
+}
+
 bool HttpServer::listen(const Config& cfg) {
     if (running_.load()) return true;
     cfg_ = cfg;
+    activeConnections_.store(0);
     if (cfg_.ioThreadCount == 0) {
         cfg_.ioThreadCount = std::thread::hardware_concurrency();
     }
@@ -112,13 +132,16 @@ bool HttpServer::listen(const Config& cfg) {
                 onClientRequest(fd, request);
             },
             [this](SocketHandle /*fd*/) {
-                // Client closed; no action needed.
+                // Client closed; decrement active connection count.
+                releaseConnection();
             },
             [this]() {
-                // Bump per-process connection counters when the acceptor
-                // accepts a new connection.
-                stats_.connectionsAccepted.fetch_add(1);
-                stats_.connectionsActive.fetch_add(1);
+                // Try to acquire a connection slot. Returns true if successful.
+                if (tryAcquireConnection()) {
+                    stats_.connectionsAccepted.fetch_add(1);
+                    return true;
+                }
+                return false;
             },
             isAcceptor,
             [this]() -> IoThread* {
@@ -176,6 +199,15 @@ void HttpServer::onClientRequest(SocketHandle fd, const std::string& request) {
     auto headerEnd = request.find("\r\n\r\n");
     if (headerEnd != std::string::npos && request.size() > headerEnd + 4) {
         bodyJson = request.substr(headerEnd + 4);
+    }
+
+    // I.7: Enforce HTTP request body size limit. Reject oversized requests
+    // with 413 before allocation to prevent OOM.
+    if (bodyJson.size() > cfg_.maxBodySize) {
+        stats_.requestsRejected.fetch_add(1);
+        sendError(fd, 413, "Payload Too Large",
+                  "request body exceeds " + std::to_string(cfg_.maxBodySize) + " bytes");
+        return;
     }
 
     auto recordLatency = [&](int sc) {
@@ -252,10 +284,7 @@ void HttpServer::sendError(SocketHandle fd, int statusCode,
 // ---------------------------------------------------------------------------
 
 void HttpServer::handleQuery(SocketHandle fd, const std::string& bodyJson) {
-    HttpApiAccessPlugin plugin;
-    TransactionManager txnm;
-    LockManager lkm;
-    DeadlockDetector dd(lkm);
+    HttpApiAccessPlugin plugin(txnm_, lockMgr_, deadlock_);
     DbError err = plugin.open("", storage_, dispatcher_);
     if (!err.isSentinel()) {
         std::string json = JsonEncoder::encode(err);
@@ -272,10 +301,7 @@ void HttpServer::handleQuery(SocketHandle fd, const std::string& bodyJson) {
 }
 
 void HttpServer::handleBegin(SocketHandle fd) {
-    HttpApiAccessPlugin plugin;
-    TransactionManager txnm;
-    LockManager lkm;
-    DeadlockDetector dd(lkm);
+    HttpApiAccessPlugin plugin(txnm_, lockMgr_, deadlock_);
     DbError err = plugin.open("", storage_, dispatcher_);
     if (!err.isSentinel()) {
         std::string json = JsonEncoder::encode(err);
@@ -292,10 +318,7 @@ void HttpServer::handleBegin(SocketHandle fd) {
 }
 
 void HttpServer::handleCommit(SocketHandle fd, const std::string& bodyJson) {
-    HttpApiAccessPlugin plugin;
-    TransactionManager txnm;
-    LockManager lkm;
-    DeadlockDetector dd(lkm);
+    HttpApiAccessPlugin plugin(txnm_, lockMgr_, deadlock_);
     DbError err = plugin.open("", storage_, dispatcher_);
     if (!err.isSentinel()) {
         std::string json = JsonEncoder::encode(err);
@@ -312,10 +335,7 @@ void HttpServer::handleCommit(SocketHandle fd, const std::string& bodyJson) {
 }
 
 void HttpServer::handleRollback(SocketHandle fd, const std::string& bodyJson) {
-    HttpApiAccessPlugin plugin;
-    TransactionManager txnm;
-    LockManager lkm;
-    DeadlockDetector dd(lkm);
+    HttpApiAccessPlugin plugin(txnm_, lockMgr_, deadlock_);
     DbError err = plugin.open("", storage_, dispatcher_);
     if (!err.isSentinel()) {
         std::string json = JsonEncoder::encode(err);

@@ -146,7 +146,20 @@ void IoThread::run() {
             while (running_.load()) {
                 HttpServer::SocketHandle clientFd = -1;
                 if (!sockets::accept(listen_fd_, clientFd)) break;
-                if (onAccept_) onAccept_();
+                bool accepted = false;
+                if (onAccept_) accepted = onAccept_();
+                if (!accepted) {
+                    // I.6: At max connections — reject with 503.
+                    static const std::string resp = "HTTP/1.1 503 Service Unavailable\r\n"
+                                                    "Content-Type: application/json\r\n"
+                                                    "Content-Length: 30\r\n"
+                                                    "Connection: close\r\n"
+                                                    "\r\n"
+                                                    "{\"error\":\"server at capacity\"}";
+                    sockets::write(clientFd, resp.c_str(), resp.size());
+                    sockets::close(clientFd);
+                    continue;
+                }
                 // Hand to a peer io thread (round-robin via the selector).
                 IoThread* peer = peerSelector_ ? peerSelector_() : nullptr;
                 if (peer) {
@@ -188,6 +201,7 @@ void IoThread::run() {
                 if (!c->closed) {
                     conns_[fd] = std::move(c);
                 } else {
+                    closeConnection(*c);
                     conns_.erase(fd);
                 }
             }
@@ -208,6 +222,7 @@ void IoThread::run() {
                 if (!c->closed) {
                     conns_[fd] = std::move(c);
                 } else {
+                    closeConnection(*c);
                     conns_.erase(fd);
                 }
             }

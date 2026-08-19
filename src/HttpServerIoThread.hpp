@@ -41,11 +41,12 @@ class IoThread {
 public:
     using HandlerFn = std::function<void(HttpServer::SocketHandle fd, const std::string& request)>;
     using CloseFn = std::function<void(HttpServer::SocketHandle fd)>;
-    using AcceptFn = std::function<void()>;
+    using AcceptFn = std::function<bool()>; // returns true if accepted, false if rejected (at capacity)
 
     // Construct an io thread. `isAcceptor` (default false) makes this
     // thread also watch the listen fd passed via setListenFd().
-    // onAccept is called once per accepted connection (stats counter).
+    // onAccept is called once per accepted connection — returns true if
+    // accepted, false if rejected (server at capacity).
     // peerSelector returns the IoThread that should adopt the new fd.
     using PeerSelector = std::function<IoThread*(void)>;
     IoThread(HttpServer::Config cfg, HandlerFn onRequest, CloseFn onClose,
