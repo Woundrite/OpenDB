@@ -13,6 +13,11 @@ operational metrics, SQL features, free-list reuse, concurrency stress),
 and Phase 6.1 (ALTER TABLE), 6.2 (SQL JOINs), 6.4 (BTree per-page recycling),
 6.5 (plugable buddy allocator).
 
+**Phase 1 (Critical Correctness & Safety — GA Blockers)** is also complete:
+unified locking across front-ends, lock-wait timeout (50s), NULL equality
+semantics, JSON parser replacement, HTTP body/connection limits, and
+per-statement query timeout.
+
 ## Architecture
 
 ```
