@@ -75,3 +75,106 @@ TEST(JsonEncoder_ArrayOfArrays_Compact_Format) {
     EXPECT(s.find("[1,\"alice\"]") != std::string::npos);
     EXPECT(s.find("[2,\"bob\"]") != std::string::npos);
 }
+
+// ---------------------------------------------------------------------------
+// JSON request parser tests (ponytail: F.6/I.8)
+// ---------------------------------------------------------------------------
+
+TEST(JsonParser_Query_Extracts_Type_And_Sql) {
+    auto req = parseJsonRequest(R"({"type":"query","sql":"SELECT 1"})");
+    EXPECT(req.has_value());
+    if (req) {
+        EXPECT(req->type == "query");
+        EXPECT(req->sql == "SELECT 1");
+    }
+}
+
+TEST(JsonParser_Begin_Has_Type_Only) {
+    auto req = parseJsonRequest(R"({"type":"begin"})");
+    EXPECT(req.has_value());
+    if (req) EXPECT(req->type == "begin");
+}
+
+TEST(JsonParser_Commit_With_TxnId) {
+    auto req = parseJsonRequest(R"({"type":"commit","txnId":42})");
+    EXPECT(req.has_value());
+    if (req) {
+        EXPECT(req->type == "commit");
+        EXPECT(req->txnId.has_value());
+        EXPECT_EQ(*req->txnId, std::uint64_t{42});
+    }
+}
+
+TEST(JsonParser_Escaped_Quotes_Inside_SQL) {
+    auto req = parseJsonRequest(R"({"type":"query","sql":"SELECT \"foo\" FROM t"})");
+    EXPECT(req.has_value());
+    if (req) {
+        EXPECT(req->type == "query");
+        EXPECT(req->sql == "SELECT \"foo\" FROM t");
+    }
+}
+
+TEST(JsonParser_SQL_Containing_Substring_sql) {
+    auto req = parseJsonRequest(R"json({"type":"query","sql":"CREATE TABLE sql_log (id INT)"})json");
+    EXPECT(req.has_value());
+    if (req) {
+        EXPECT(req->type == "query");
+        EXPECT(req->sql == "CREATE TABLE sql_log (id INT)");
+    }
+}
+
+TEST(JsonParser_String_With_Backslash_Escapes) {
+    auto req = parseJsonRequest(R"({"type":"query","sql":"a\nb\tc\\d"})");
+    EXPECT(req.has_value());
+    if (req) EXPECT(req->sql == "a\nb\tc\\d");
+}
+
+TEST(JsonParser_Unknown_Key_Is_Ignored) {
+    auto req = parseJsonRequest(R"({"type":"begin","extra":"ignored","nested":{"a":1}})");
+    EXPECT(req.has_value());
+    if (req) EXPECT(req->type == "begin");
+}
+
+TEST(JsonParser_Key_Order_Does_Not_Matter) {
+    auto req = parseJsonRequest(R"({"sql":"SELECT 1","type":"query"})");
+    EXPECT(req.has_value());
+    if (req) {
+        EXPECT(req->type == "query");
+        EXPECT(req->sql == "SELECT 1");
+    }
+}
+
+TEST(JsonParser_Whitespace_Tolerated) {
+    auto req = parseJsonRequest(R"({ "type" : "query" , "sql" : "SELECT 1" })");
+    EXPECT(req.has_value());
+    if (req) {
+        EXPECT(req->type == "query");
+        EXPECT(req->sql == "SELECT 1");
+    }
+}
+
+TEST(JsonParser_Malformed_Returns_Nullopt) {
+    EXPECT(!parseJsonRequest("{not valid json}").has_value());
+    EXPECT(!parseJsonRequest(R"({"type":})").has_value());
+    EXPECT(!parseJsonRequest(R"({"sql":"x"})").has_value());
+    EXPECT(!parseJsonRequest(R"({"type":"begin")").has_value());
+    EXPECT(!parseJsonRequest("").has_value());
+    EXPECT(!parseJsonRequest("[]").has_value());
+}
+
+TEST(JsonParser_Unicode_Escape_In_SQL) {
+    auto req = parseJsonRequest("{\"type\":\"query\",\"sql\":\"caf\\u00e9\"}");
+    EXPECT(req.has_value());
+    if (req) {
+        EXPECT(req->sql == std::string("caf\xc3\xa9"));
+    }
+}
+
+TEST(JsonParser_TxnId_As_Number_String) {
+    auto req = parseJsonRequest(R"({"type":"commit","txnId":9999999999})");
+    EXPECT(req.has_value());
+    if (req) {
+        EXPECT(req->txnId.has_value());
+        EXPECT_EQ(*req->txnId, std::uint64_t{9999999999ULL});
+    }
+}

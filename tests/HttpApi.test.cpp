@@ -5,6 +5,9 @@
 #include "atomdb/types/Result.hpp"
 #include "atomdb/frontend/JsonEncoder.hpp"
 #include "atomdb/contracts/IAccessPlugin.hpp"
+#include "atomdb/core/TransactionManager.hpp"
+#include "atomdb/core/LockManager.hpp"
+#include "atomdb/core/DeadlockDetector.hpp"
 #include "../tests/test_framework.hpp"
 #include <memory>
 
@@ -34,7 +37,10 @@ TEST(HttpApi_BasicQuery) {
     EXPECT(storage->createTable(schema).isSentinel());
     
     MockDispatcher dispatcher;
-    HttpApiAccessPlugin plugin;
+    TransactionManager txnm;
+    LockManager lockMgr;
+    DeadlockDetector dd(lockMgr);
+    HttpApiAccessPlugin plugin(txnm, lockMgr, dd);
     plugin.open("in-memory://", storage.get(), &dispatcher);
     
     // Create table via HTTP
@@ -70,7 +76,10 @@ TEST(HttpApi_Insert_Select) {
     EXPECT(storage->createTable(schema).isSentinel());
     
     MockDispatcher dispatcher;
-    HttpApiAccessPlugin plugin;
+    TransactionManager txnm;
+    LockManager lockMgr;
+    DeadlockDetector dd(lockMgr);
+    HttpApiAccessPlugin plugin(txnm, lockMgr, dd);
     plugin.open("in-memory://", storage.get(), &dispatcher);
     
     // Insert via HTTP
@@ -101,7 +110,10 @@ TEST(HttpApi_DropTable) {
     EXPECT(storage->tables().size() == 1);
     
     MockDispatcher dispatcher;
-    HttpApiAccessPlugin plugin;
+    TransactionManager txnm;
+    LockManager lockMgr;
+    DeadlockDetector dd(lockMgr);
+    HttpApiAccessPlugin plugin(txnm, lockMgr, dd);
     plugin.open("in-memory://", storage.get(), &dispatcher);
     
     std::string resp = plugin.handleRequest("{\"type\":\"query\",\"sql\":\"DROP TABLE to_drop\"}");
@@ -171,7 +183,10 @@ TEST(HttpApi_Insert_DefaultValues_Materializes_Defaults) {
     EXPECT(storage->createTable(schema).isSentinel());
 
     MockDispatcher dispatcher;
-    HttpApiAccessPlugin plugin;
+    TransactionManager txnm;
+    LockManager lockMgr;
+    DeadlockDetector dd(lockMgr);
+    HttpApiAccessPlugin plugin(txnm, lockMgr, dd);
     plugin.open("in-memory://", storage.get(), &dispatcher);
 
     // INSERT DEFAULT VALUES — front-end fills name=anon, age=0 from the schema.
@@ -191,7 +206,10 @@ TEST(HttpApi_CreateTable_Default_In_Schema_Visible_In_Describe) {
     storage->open("in-memory://");
 
     MockDispatcher dispatcher;
-    HttpApiAccessPlugin plugin;
+    TransactionManager txnm;
+    LockManager lockMgr;
+    DeadlockDetector dd(lockMgr);
+    HttpApiAccessPlugin plugin(txnm, lockMgr, dd);
     plugin.open("in-memory://", storage.get(), &dispatcher);
 
     std::string req = "{\"type\":\"query\",\"sql\":\"CREATE TABLE u (id INT PRIMARY KEY, qty INT DEFAULT 7)\"}";

@@ -50,7 +50,7 @@ TEST(EngineDispatcher_BasicEnqueueAndRun) {
     TransactionManager txnm;
     LockManager lockMgr;
     DeadlockDetector dd(lockMgr);
-    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd);
+    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd, std::chrono::seconds(50), std::chrono::milliseconds(0));
 
     std::atomic<bool> done{false};
     auto session = std::make_unique<OneShotSession>(done);
@@ -79,7 +79,7 @@ TEST(EngineDispatcher_MetricsSnapshot_IsValidJSON_Shape) {
     TransactionManager txnm;
     LockManager lockMgr;
     DeadlockDetector dd(lockMgr);
-    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd);
+    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd, std::chrono::seconds(50), std::chrono::milliseconds(0));
 
     auto snap = dispatcher.renderMetricsSnapshot();
     EXPECT(snap.find("\"sessions_enqueued\":") != std::string::npos);
@@ -100,7 +100,7 @@ TEST(EngineDispatcher_Shutdown_StopsAccepting) {
     TransactionManager txnm;
     LockManager lockMgr;
     DeadlockDetector dd(lockMgr);
-    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd);
+    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd, std::chrono::seconds(50), std::chrono::milliseconds(0));
     dispatcher.shutdown();
 
     // After shutdown, enqueue should not silently accept: any session is
@@ -128,7 +128,7 @@ TEST(EngineDispatcher_ConcurrentEnqueue_AllSessionsRun) {
     TransactionManager txnm;
     LockManager lockMgr;
     DeadlockDetector dd(lockMgr);
-    EngineDispatcher dispatcher(4, provider.get(), txnm, lockMgr, dd);
+    EngineDispatcher dispatcher(4, provider.get(), txnm, lockMgr, dd, std::chrono::seconds(50), std::chrono::milliseconds(0));
 
     constexpr int kSessions = 8;
     std::vector<std::atomic<bool>> done(kSessions);

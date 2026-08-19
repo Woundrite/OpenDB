@@ -26,13 +26,13 @@ TEST(HttpServer_Configuration_Port_Zero_Lets_OS_Choose) {
     TransactionManager txnm;
     LockManager lockMgr;
     DeadlockDetector dd(lockMgr);
-    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd);
+    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd, std::chrono::seconds(50));
 
     HttpServer::Config cfg;
     cfg.port = 0;
     cfg.ioThreadCount = 2;
 
-    HttpServer server(provider.get(), &dispatcher);
+    HttpServer server(provider.get(), &dispatcher, txnm, lockMgr, dd);
     EXPECT(server.listen(cfg));
     EXPECT(server.isListening());
     EXPECT(server.boundPort() > 0);
@@ -49,13 +49,13 @@ TEST(HttpServer_Configuration_Respects_Thread_Count) {
     TransactionManager txnm;
     LockManager lockMgr;
     DeadlockDetector dd(lockMgr);
-    EngineDispatcher dispatcher(4, provider.get(), txnm, lockMgr, dd);
+    EngineDispatcher dispatcher(4, provider.get(), txnm, lockMgr, dd, std::chrono::seconds(50));
 
     HttpServer::Config cfg;
     cfg.port = 0;
     cfg.ioThreadCount = 4;
 
-    HttpServer server(provider.get(), &dispatcher);
+    HttpServer server(provider.get(), &dispatcher, txnm, lockMgr, dd);
     EXPECT(server.listen(cfg));
 
     server.stop();
@@ -70,9 +70,9 @@ TEST(HttpServer_Stats_Default_Zero) {
     TransactionManager txnm;
     LockManager lockMgr;
     DeadlockDetector dd(lockMgr);
-    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd);
+    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd, std::chrono::seconds(50));
 
-    HttpServer server(provider.get(), &dispatcher);
+    HttpServer server(provider.get(), &dispatcher, txnm, lockMgr, dd);
     EXPECT_EQ(server.stats().requestsServed.load(), std::uint64_t{0});
     EXPECT_EQ(server.stats().connectionsAccepted.load(), std::uint64_t{0});
 
@@ -88,9 +88,9 @@ TEST(HttpServer_RenderStats_Contains_All_Fields) {
     TransactionManager txnm;
     LockManager lockMgr;
     DeadlockDetector dd(lockMgr);
-    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd);
+    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd, std::chrono::seconds(50));
 
-    HttpServer server(provider.get(), &dispatcher);
+    HttpServer server(provider.get(), &dispatcher, txnm, lockMgr, dd);
     auto snap = server.renderStatsSnapshot();
     EXPECT(snap.find("connections_accepted") != std::string::npos);
     EXPECT(snap.find("connections_active")  != std::string::npos);
@@ -108,9 +108,9 @@ TEST(HttpServer_Stop_Without_Listen_Is_Safe) {
     TransactionManager txnm;
     LockManager lockMgr;
     DeadlockDetector dd(lockMgr);
-    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd);
+    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd, std::chrono::seconds(50));
 
-    HttpServer server(provider.get(), &dispatcher);
+    HttpServer server(provider.get(), &dispatcher, txnm, lockMgr, dd);
     // Calling stop/join without listen must be a no-op.
     server.stop();
     server.join();
@@ -126,15 +126,15 @@ TEST(HttpServer_Multiple_Servers_Can_Coexist) {
     TransactionManager txnm;
     LockManager lockMgr;
     DeadlockDetector dd(lockMgr);
-    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd);
+    EngineDispatcher dispatcher(2, provider.get(), txnm, lockMgr, dd, std::chrono::seconds(50));
 
-    HttpServer s1(provider.get(), &dispatcher);
+    HttpServer s1(provider.get(), &dispatcher, txnm, lockMgr, dd);
     HttpServer::Config c1;
     c1.port = 0;
     c1.ioThreadCount = 2;
     EXPECT(s1.listen(c1));
 
-    HttpServer s2(provider.get(), &dispatcher);
+    HttpServer s2(provider.get(), &dispatcher, txnm, lockMgr, dd);
     HttpServer::Config c2;
     c2.port = 0;
     c2.ioThreadCount = 2;

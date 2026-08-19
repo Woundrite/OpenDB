@@ -565,3 +565,101 @@ TEST(SqlParser_JOIN_3Table_Chain) {
         EXPECT(cmd->joins[1].rightColumn == "c.id");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Phase 6.4 / F.6: IS NULL / IS NOT NULL parser tests.
+// ---------------------------------------------------------------------------
+
+TEST(SqlParser_Select_Where_IsNull) {
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM users WHERE deleted_at IS NULL");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    EXPECT(cmd != nullptr);
+    if (cmd && cmd->where) {
+        EXPECT(!cmd->where->empty());
+        auto* node = const_cast<ComparisonNode*>(static_cast<const ComparisonNode*>(cmd->where->root()));
+        EXPECT(node != nullptr);
+        if (node) {
+            EXPECT(node->column() == "deleted_at");
+            EXPECT(node->op() == ComparisonOp::IsNull);
+        }
+    }
+}
+
+TEST(SqlParser_Select_Where_IsNotNull) {
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM users WHERE email IS NOT NULL");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    EXPECT(cmd != nullptr);
+    if (cmd && cmd->where) {
+        auto* node = const_cast<ComparisonNode*>(static_cast<const ComparisonNode*>(cmd->where->root()));
+        EXPECT(node != nullptr);
+        if (node) {
+            EXPECT(node->column() == "email");
+            EXPECT(node->op() == ComparisonOp::IsNotNull);
+        }
+    }
+}
+
+TEST(SqlParser_IsNull_CaseInsensitive) {
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM t WHERE c is null");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    if (cmd && cmd->where) {
+        auto* node = const_cast<ComparisonNode*>(static_cast<const ComparisonNode*>(cmd->where->root()));
+        EXPECT(node != nullptr);
+        if (node) {
+            EXPECT(node->op() == ComparisonOp::IsNull);
+        }
+    }
+}
+
+TEST(SqlParser_IsNotNull_CaseInsensitive) {
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM t WHERE c is not null");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    if (cmd && cmd->where) {
+        auto* node = const_cast<ComparisonNode*>(static_cast<const ComparisonNode*>(cmd->where->root()));
+        EXPECT(node != nullptr);
+        if (node) {
+            EXPECT(node->op() == ComparisonOp::IsNotNull);
+        }
+    }
+}
+
+TEST(SqlParser_IsNull_No_Operand_After_Operator) {
+    // IS NULL must not consume a value literal after it.
+    // If we add `AND active = true` after, the second predicate must parse.
+    SqlParser p;
+    auto s = p.parse("SELECT * FROM t WHERE deleted_at IS NULL AND active = true");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    if (cmd && cmd->where) {
+        // The top-level node should be an AND (LogicalNode).
+        auto* root = cmd->where->root();
+        EXPECT(root != nullptr);
+        if (root) {
+            EXPECT(root->toString().find("AND") != std::string::npos);
+        }
+    }
+}
+
+TEST(SqlParser_Update_Where_IsNull) {
+    SqlParser p;
+    auto s = p.parse("UPDATE users SET status = 'inactive' WHERE deleted_at IS NULL");
+    EXPECT(s.has_value());
+    auto* cmd = std::get_if<Command>(&*s);
+    EXPECT(cmd != nullptr);
+    if (cmd && cmd->where) {
+        auto* node = const_cast<ComparisonNode*>(static_cast<const ComparisonNode*>(cmd->where->root()));
+        EXPECT(node != nullptr);
+        if (node) {
+            EXPECT(node->op() == ComparisonOp::IsNull);
+            EXPECT(node->column() == "deleted_at");
+        }
+    }
+}

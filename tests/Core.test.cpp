@@ -396,3 +396,27 @@ TEST(Lock_RowLevel_WaiterResource_Reports_Table) {
     lm.release(t1);
     waiter.join();
 }
+
+TEST(LockManager_TryAcquire_TimesOut) {
+    // tryAcquire with a short timeout returns TimedOut without granting
+    LockManager lm;
+    TxnId t1{1}, t2{2};
+    lm.acquire(t1, "users", LockMode::Exclusive); // t1 holds exclusive lock
+
+    // t2 tries with 10ms timeout — should time out
+    using atomdb::LockAcquireResult;
+    auto result = lm.tryAcquire(t2, "users", LockMode::Exclusive, std::chrono::milliseconds(10));
+    EXPECT(result == LockAcquireResult::TimedOut);
+    EXPECT(!lm.isGranted(t2, "users")); // lock not granted to t2
+    EXPECT(lm.isGranted(t1, "users"));  // t1 still holds it
+}
+
+TEST(LockManager_TryAcquire_Grants_When_Available) {
+    // tryAcquire with available lock grants immediately
+    LockManager lm;
+    TxnId t1{1};
+    using atomdb::LockAcquireResult;
+    auto result = lm.tryAcquire(t1, "users", LockMode::Shared, std::chrono::seconds(50));
+    EXPECT(result == LockAcquireResult::Granted);
+    EXPECT(lm.isGranted(t1, "users"));
+}
