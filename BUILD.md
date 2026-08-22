@@ -246,19 +246,23 @@ make test
 ./build/json_test       # 19 tests - JsonEncoder/Parser
 ./build/api_test        # 7 tests - HttpApi
 ./build/hs_test         # 6 tests - HttpServer
-# Total: 130 tests
+```
+
+The full suite is **247 `TEST()` cases across 17 test files**; these per-suite
+executables are convenience subsets and do not sum to it. Canonical run is
+`make test`: currently **243 pass / 4 fail** — deterministic, pre-existing Pager
+free-list/migration bugs (see docs/PHASE1-CHANGELOG.md). No hangs.
+```
+==== PASSED 243 / FAILED 4 ====
+[  FAILED  ] LocalFile_DropTable_FreePages_Survive_Reopen
+[  FAILED  ] Pager_FreeList_LIFO_Order
+[  FAILED  ] Pager_FreeList_Survives_Reopen
+[  FAILED  ] Pager_Buddy_V1_To_V2_Migration_Preserves_Allocations_And_Frees
 ```
 
 ### Expected Test Output
 ```
-==== PASSED 26 / FAILED 0 ====
-==== PASSED 4 / FAILED 0 ====
-==== PASSED 48 / FAILED 0 ====
-==== PASSED 19 / FAILED 0 ====
-==== PASSED 19 / FAILED 0 ====
-==== PASSED 7 / FAILED 0 ====
-==== PASSED 6 / FAILED 0 ====
-Total: 130 tests passed
+==== PASSED 243 / FAILED 4 ====
 ```
 
 ### Run REPL (Interactive Mode)
@@ -475,5 +479,5 @@ MIT License - See LICENSE file for details.
 
 ---
 
-*Generated for OpenDB v0.1 - Production Readiness Backlog Phase 1 Complete*
-*All 130 tests passing across 8 test suites*
+*OpenDB v0.1 — Production Readiness Backlog, Phase 1*
+*Full suite: 247 tests, 243 passing / 4 known Pager failures — see docs/PHASE1-CHANGELOG.md*
