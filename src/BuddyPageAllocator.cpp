@@ -33,7 +33,7 @@ void BuddyPageAllocator::ensureBitmapSize(PageId pageCount) {
 PageId BuddyPageAllocator::allocatePages(
     std::size_t n,
     std::function<PageId(std::size_t)> extendFile) {
-    std::lock_guard<std::mutex> lk(mu_);
+    std::unique_lock<std::mutex> lk(mu_);   // was: std::lock_guard
     assert(n > 0);
 
     std::size_t targetClass = classFor(n);
@@ -58,10 +58,17 @@ PageId BuddyPageAllocator::allocatePages(
         }
     }
 
-    // No free run available: extend file.
-    PageId start = extendFile(n);
-    // The new pages are already marked allocated by onFileExtended.
-    return start;
+    // No free run available: extend file. extendFile() (Pager::extendFile)
+    // calls back into onFileExtended(), which takes mu_ itself — so mu_
+    // MUST be released before invoking this callback, or the calling
+    // thread deadlocks against its own held lock. Note: Pager itself has
+    // no mutex of its own, so today this is safe only because callers
+    // serialize writes to a given table above this layer (table-level
+    // locking) — this fix removes the guaranteed deadlock, it doesn't add
+    // concurrency safety Pager didn't already have.
+    lk.unlock();
+    return extendFile(n);
+    // The new pages are already marked allocated by onFileExtended().
 }
 
 void BuddyPageAllocator::freePages(PageId start, std::size_t n) {
@@ -113,13 +120,17 @@ std::size_t BuddyPageAllocator::freePageCount() const {
     return sum;
 }
 
-std::size_t BuddyPageAllocator::freeRunCount() const {
-    std::lock_guard<std::mutex> lk(mu_);
+std::size_t BuddyPageAllocator::freeRunCountUnlocked() const {
     std::size_t sum = 0;
     for (std::size_t k = 0; k <= MAX_CLASS; ++k) {
         sum += freeBuddy_[k].size();
     }
     return sum;
+}
+
+std::size_t BuddyPageAllocator::freeRunCount() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    return freeRunCountUnlocked();
 }
 
 void BuddyPageAllocator::onFileExtended(PageId startPageId, std::size_t n) {
@@ -146,14 +157,14 @@ void BuddyPageAllocator::serializeHeader(std::uint8_t out[16]) const {
         }
     }
     std::uint16_t maxClass16 = static_cast<std::uint16_t>(maxClass);
-    std::uint16_t runCount16 = static_cast<std::uint16_t>(std::min(freeRunCount(), std::size_t(65535)));
+    std::uint16_t runCount16 = static_cast<std::uint16_t>(std::min(freeRunCountUnlocked(), std::size_t(65535)));
     std::memcpy(out + 8, &maxClass16, 2);
     std::memcpy(out + 10, &runCount16, 2);
 }
 
 void BuddyPageAllocator::loadHeader(const std::uint8_t in[16], PageId pageCount) {
     std::lock_guard<std::mutex> lk(mu_);
-    // The Pager already rebuilt our `allocated_` bitmap and `freeBuddy_`
+    // The Pager already rebuilt our llocated_ bitmap and reeBuddy_
     // by walking the v1 freeHead chain and calling onFileExtended/freePages
     // BEFORE this loadHeader call. We just need to read the diagnostic fields
     // if they exist (v2), and ensure bitmap size matches pageCount.

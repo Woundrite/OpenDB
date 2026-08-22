@@ -34,7 +34,7 @@ namespace atomdb {
 //      freeBuddy_[k+1]. Repeat until no coalesce possible or k == MAX_CLASS.
 //
 // Coalescing requires knowing which pages are free, hence the in-memory
-// `allocated_` bitmap. The bitmap is rebuilt on open() from the on-disk
+// llocated_ bitmap. The bitmap is rebuilt on open() from the on-disk
 // freeHead chain (v1 format preserved).
 //
 // On-disk state (preserved across open/close):
@@ -43,7 +43,7 @@ namespace atomdb {
 //     free-list chain if it opens the file. The v2 header bytes are
 //     diagnostic-only (freeRunCount + maxClass).
 //
-// Concurrency: all public methods take `mu_` (matches LockManager /
+// Concurrency: all public methods take mu_ (matches LockManager /
 // TransactionManager style of "one mutex per stateful component").
 class BuddyPageAllocator final : public IPageAllocator {
 public:
@@ -77,6 +77,12 @@ private:
     static bool isPowerOfTwo(std::size_t n);
 
     void ensureBitmapSize(PageId pageCount);
+
+    // Unlocked variant of freeRunCount(), for internal callers (e.g.
+    // serializeHeader()) that already hold mu_. std::mutex is not
+    // recursive, so re-taking mu_ from a method that already holds it
+    // deadlocks the calling thread rather than erroring.
+    std::size_t freeRunCountUnlocked() const;
 };
 
 } // namespace atomdb
