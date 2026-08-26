@@ -8,3 +8,15 @@ dist/
 *.swp
 .idea/
 .vscode/
+
+# opencode-swarm session state (evidence, locks, telemetry, receipts)
+.swarm/
+
+# local build/test artifacts
+*.dat
+link_err.txt
+
+# local dev scratch (superseded by Makefile fixes)
+link.bat
+test_compile.cpp
+test_link.cpp
