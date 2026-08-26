@@ -43,6 +43,7 @@ int main() {
     // Test freePageCount equivalence
     printf("freeRunCount=%zu\n", q.freeRunCount());
 
+    q.close(); // release the OS file handle; Windows refuses remove() otherwise
     std::filesystem::remove("test_buddy.dat");
     return 0;
 }
