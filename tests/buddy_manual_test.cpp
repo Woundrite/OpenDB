@@ -2,9 +2,9 @@
 #include <filesystem>
 #include <vector>
 
-#include "atomdb/storage/Pager.hpp"
+#include "opendb/storage/Pager.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 int main() {
     std::filesystem::remove("test_buddy.dat");

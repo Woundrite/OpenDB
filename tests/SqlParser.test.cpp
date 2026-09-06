@@ -1,10 +1,10 @@
-#include "atomdb/frontend/SqlParser.hpp"
-#include "atomdb/types/Value.hpp"
-#include "atomdb/types/Predicate.hpp"
-#include "atomdb/types/Schema.hpp"
+#include "opendb/frontend/SqlParser.hpp"
+#include "opendb/types/Value.hpp"
+#include "opendb/types/Predicate.hpp"
+#include "opendb/types/Schema.hpp"
 #include "../tests/test_framework.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 TEST(SqlParser_CreateTable_Basic) {
     SqlParser p;

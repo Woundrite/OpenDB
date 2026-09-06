@@ -1,12 +1,12 @@
-# AtomDB API Reference
+# OpenDB API Reference
 
 This document describes the public contracts (Phase 4+) for extending or
-embedding AtomDB. Items are grouped by layer (back-end contract, core types,
+embedding OpenDB. Items are grouped by layer (back-end contract, core types,
 front-end contract) and listed by header.
 
 ## Back-end contracts
 
-### `atomdb::IStorageProvider` (`contracts/IStorageProvider.hpp`)
+### `opendb::IStorageProvider` (`contracts/IStorageProvider.hpp`)
 
 The back-end plugin contract that owns the data path, capability
 declaration, lifecycle, and schema/DDL surface.
@@ -38,6 +38,7 @@ public:
 ```
 
 **Capability flags** (`StorageCapability`):
+
 - `Durable` — data survives process exit
 - `CrashDurable` — data survives mid-write crash
 - `RandomAccess` — O(log n) `get()` by key
@@ -51,7 +52,7 @@ public:
 `IStorageEngine*` (returned via `engine()`). Decorator providers (Caching,
 Sharded) hold another `IStorageProvider*` and forward / merge.
 
-### `atomdb::IStorageEngine` (`contracts/IStorageEngine.hpp`)
+### `opendb::IStorageEngine` (`contracts/IStorageEngine.hpp`)
 
 The contract above the engine layer. Every concrete engine (In-Memory,
 Local B-Tree, Caching decorator, Sharded) implements this interface.
@@ -86,13 +87,14 @@ public:
 ```
 
 Two-phase commit lifecycle (spec §4.2):
+
 - `prepare(txn)` — engine may flush to disk here if durable
 - `commit(txn)` or `commit(txn, visibleSeq)` — make staged writes visible
 - `abort(txn)` — discard all staged writes for this txn
 
 ## Front-end contracts
 
-### `atomdb::ICommandSource` (`contracts/ICommandSource.hpp`)
+### `opendb::ICommandSource` (`contracts/ICommandSource.hpp`)
 
 The pull-based contract the core uses to obtain commands.
 
@@ -111,7 +113,7 @@ public:
 };
 ```
 
-### `atomdb::IAccessPlugin` (`contracts/IAccessPlugin.hpp`)
+### `opendb::IAccessPlugin` (`contracts/IAccessPlugin.hpp`)
 
 The server-mode access plugin (REPL-style front-end, HTTP API, etc.).
 Provides an open/close lifecycle and a `handleRequest(req)` method.
@@ -131,7 +133,7 @@ public:
 
 ## Core types
 
-### `atomdb::Value` (`types/Value.hpp`)
+### `opendb::Value` (`types/Value.hpp`)
 
 Tagged-union value type with strong ordering. Tags:
 `Null`, `Bool`, `Int32`, `Int64`, `Double`, `Text`, `Blob`, `Date`,
@@ -139,18 +141,18 @@ Tagged-union value type with strong ordering. Tags:
 
 Ordering buckets: `Null(0) < Bool(1) < Number(2) < Text(3) < Blob(4)`.
 
-### `atomdb::Tuple` (`types/Tuple.hpp`)
+### `opendb::Tuple` (`types/Tuple.hpp`)
 
 Ordered sequence of `ColumnValue{name, Value}` pairs. O(1) name lookup,
 order-sensitive equality.
 
-### `atomdb::Schema` (`types/Schema.hpp`)
+### `opendb::Schema` (`types/Schema.hpp`)
 
 A table's column definitions + optional `PartitionPolicy`. Includes
 `ColumnDef::defaultValue : std::optional<Value>` for column-level
 DEFAULTs.
 
-### `atomdb::Command` (`types/Command.hpp`)
+### `opendb::Command` (`types/Command.hpp`)
 
 The IR for DML operations: `Insert`, `Update`, `Delete`, `Select`. Has
 optional `where` predicate, projections, ORDER BY, LIMIT, OFFSET, and a
@@ -159,29 +161,29 @@ right `table`, and the single-equality ON predicate as two fully-qualified
 columns). Joined tuples carry `<table>.<column>` keys so columns from
 different tables never collide.
 
-### `atomdb::Predicate` (`types/Predicate.hpp`)
+### `opendb::Predicate` (`types/Predicate.hpp`)
 
 Tree of `ComparisonNode` / `LogicalNode` for WHERE evaluation.
 
 ## Core engine
 
-### `atomdb::EngineLoop` (`core/EngineLoop.hpp`)
+### `opendb::EngineLoop` (`core/EngineLoop.hpp`)
 
 The synchronous core dispatch loop. Pulls commands from the
 `ICommandSource`, acquires row- or table-level locks, dispatches by
 command type, and commits at the end of each iteration.
 
-### `atomdb::EngineDispatcher` (`core/EngineDispatcher.hpp`)
+### `opendb::EngineDispatcher` (`core/EngineDispatcher.hpp`)
 
 A thread-pool wrapper. Hands Commands to a worker thread that runs the
 `EngineLoop` against the storage engine.
 
-### `atomdb::TransactionManager` (`core/TransactionManager.hpp`)
+### `opendb::TransactionManager` (`core/TransactionManager.hpp`)
 
 Owns the `visibleSeq` counter, tracks in-flight TXs, and produces
 TxnIds. `commitTxn` advances `visibleSeq`.
 
-### `atomdb::LockManager` (`core/LockManager.hpp`)
+### `opendb::LockManager` (`core/LockManager.hpp`)
 
 Shared/Exclusive locks with blocking semantics. Supports both
 table-level and row-level granularity via `ResourceKey = (table, rowKey)`.
@@ -200,36 +202,38 @@ public:
 };
 ```
 
-### `atomdb::DeadlockDetector` (`core/DeadlockDetector.hpp`)
+### `opendb::DeadlockDetector` (`core/DeadlockDetector.hpp`)
 
 Single wait-chain traversal. Returns the victim TxnId if a cycle is
 reachable from `origin`, else `std::nullopt`.
 
 ## Front-ends
 
-### `atomdb::HttpServer` (`frontend/HttpServer.hpp`)
+### `opendb::HttpServer` (`frontend/HttpServer.hpp`)
 
 Multi-threaded HTTP/1.1 server bound to a TCP socket. 1 accept thread,
 N io threads. Each io thread runs a `select()` loop with 100ms timeout.
 
 Endpoints:
-- `POST /query`     — SQL via `HttpApiAccessPlugin`
-- `POST /begin`     — open transaction
-- `POST /commit`    — commit (body `txnId`)
-- `POST /rollback`  — abort (body `txnId`)
-- `GET  /health`    — liveness
-- `GET  /status`    — snapshot of active connections + request count
-- `GET  /metrics`   — full `Stats` JSON
 
-### `atomdb::HttpApiAccessPlugin` (`frontend/HttpApi.hpp`)
+- `POST /query` — SQL via `HttpApiAccessPlugin`
+- `POST /begin` — open transaction
+- `POST /commit` — commit (body `txnId`)
+- `POST /rollback` — abort (body `txnId`)
+- `GET  /health` — liveness
+- `GET  /status` — snapshot of active connections + request count
+- `GET  /metrics` — full `Stats` JSON
+
+### `opendb::HttpApiAccessPlugin` (`frontend/HttpApi.hpp`)
 
 Stateless JSON request handler. JSON format documented in the file's
 header comment. Recognized request types: `query`, `begin`, `commit`,
 `rollback`, `describe`.
 
-### `atomdb::SqlParser` (`frontend/SqlParser.hpp`)
+### `opendb::SqlParser` (`frontend/SqlParser.hpp`)
 
 Hand-rolled recursive-descent parser for a small SQL subset. Supported:
+
 - `CREATE TABLE foo (col type [NOT NULL] [PRIMARY KEY] [DEFAULT <val>], ...)`
 - `CREATE TABLE foo (...) PARTITION BY HASH(col) PARTITIONS N`
 - `DROP TABLE foo`
@@ -239,7 +243,7 @@ Hand-rolled recursive-descent parser for a small SQL subset. Supported:
 - `DELETE FROM foo [WHERE <pred>]`
 - `BEGIN [TRANSACTION]` / `COMMIT` / `ROLLBACK`
 
-### `atomdb::ReplSource` (`frontend/ReplSource.hpp`)
+### `opendb::ReplSource` (`frontend/ReplSource.hpp`)
 
 Tiny line-based REPL front-end. Toy dialect:
 `INSERT <table> {<col>:<val>,...}`, `SELECT <table> [WHERE <col>=<val>]`,
@@ -247,29 +251,29 @@ Tiny line-based REPL front-end. Toy dialect:
 
 ## Storage backends
 
-### `atomdb::LocalFileStorageProvider` (`storage/LocalFileStorageProvider.hpp`)
+### `opendb::LocalFileStorageProvider` (`storage/LocalFileStorageProvider.hpp`)
 
 Durable file-backed provider. MVCC B+Tree per table on a 4 KiB-paged
 file with CRC32 tear detection. `commit() → saveMetadata() → pager.sync()`
 is the durability barrier. Includes `backupTo(target_uri)` for
 point-in-time snapshots (Phase 5 Item 16).
 
-### `atomdb::InMemoryStorageProvider` (`storage/InMemoryStorageProvider.hpp`)
+### `opendb::InMemoryStorageProvider` (`storage/InMemoryStorageProvider.hpp`)
 
 RAM-only provider. Append-only versioned records keyed by user_key +
 commitSeq DESC. Useful for tests.
 
-### `atomdb::ShardedStorageProvider` (`storage/ShardedStorageProvider.hpp`)
+### `opendb::ShardedStorageProvider` (`storage/ShardedStorageProvider.hpp`)
 
 Routes DML by hash (default), Range, or List partition policy. Owns N
 child `IStorageProvider*`. Schema is propagated to all shards.
 
-### `atomdb::CachingStorageEngine` (`storage/CachingStorageEngine.hpp`)
+### `opendb::CachingStorageEngine` (`storage/CachingStorageEngine.hpp`)
 
 Read-through + write-through cache decorator. Wraps another
 `IStorageEngine*`.
 
-### `atomdb::IPageAllocator` (`contracts/IPageAllocator.hpp`)
+### `opendb::IPageAllocator` (`contracts/IPageAllocator.hpp`)
 
 Pluggable page allocation strategy behind the Pager. The Pager owns an
 `std::unique_ptr<IPageAllocator>` (defaults to `BuddyPageAllocator`).
@@ -318,6 +322,7 @@ public:
   automatic on open.
 
 **Usage**:
+
 ```cpp
 auto pager = std::make_unique<Pager>(path);           // uses BuddyPageAllocator
 auto pager = std::make_unique<Pager>(path,
@@ -334,7 +339,7 @@ Tests: `Pager_Buddy_AllocatePages_One_Returns_First_Free`,
 
 ## JSON encoding
 
-### `atomdb::JsonEncoder` (`frontend/JsonEncoder.hpp`)
+### `opendb::JsonEncoder` (`frontend/JsonEncoder.hpp`)
 
 Encodes `ResultSet` and `DbError` to compact JSON. Special handling for
 `Blob` (base64), `Date`/`Timestamp` (ISO-8601), and array-of-arrays row

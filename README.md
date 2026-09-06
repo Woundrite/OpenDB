@@ -1,4 +1,4 @@
-# AtomDB — A From-Scratch Modular SQL Database Engine
+# OpenDB — A From-Scratch Modular SQL Database Engine
 
 A C++23 database engine implementing the layered architecture described in
 `.swarm/spec.md`: a **fixed non-pluggable core** (transaction management,
@@ -48,7 +48,7 @@ The build script is **cross-platform** with auto-detection for `g++`,
 (`-Wall -Wextra -Wpedantic -Werror`) and `-std=c++2b` (C++23).
 
 ```sh
-make           # build/atomdb (REPL) + build/test_runner (unit tests)
+make           # build/opendb (REPL) + build/test_runner (unit tests)
 make test      # 209 unit tests across types, core, storage, engine loop, REPL, joins, ...
 make smoke     # INSERT -> SELECT round trip in the REPL (milestone 5)
 make run       # launches the REPL with stdin/stdout attached
@@ -60,7 +60,7 @@ make clean     # rm -rf build/
 If `make` is unavailable, use the equivalent PowerShell helper:
 
 ```powershell
-./build.ps1 build    # build/atomdb
+./build.ps1 build    # build/opendb
 ./build.ps1 test     # 209/209 tests
 ./build.ps1 smoke    # INSERT -> SELECT round trip
 ./build.ps1 clean
@@ -71,7 +71,7 @@ If `make` is unavailable, use the equivalent PowerShell helper:
 ### SQL via the HttpApi
 
 ```sh
-./build/atomdb --http-port 8080 &
+./build/opendb --http-port 8080 &
 curl -X POST http://localhost:8080/query \
   -H 'Content-Type: application/json' \
   -d '{"type":"query","sql":"CREATE TABLE users(id INT PRIMARY KEY, name TEXT, age INT)"}'
@@ -95,8 +95,8 @@ columns as NULL. Multi-table chains are supported (`a JOIN b ON ... JOIN c ON ..
 After `make`:
 
 ```text
-$ ./build/atomdb
-atomdb v0.1 — type EXIT to quit
+$ ./build/opendb
+opendb v0.1 — type EXIT to quit
 INSERT users {key:1,name:nikhil,age:30}
 [OK]
 SELECT users
@@ -113,26 +113,26 @@ Value parsing: integer literals → `Int64`; `"..."`/`'...'` → `Text`; `true`/
 
 216 tests across:
 
-| Suite             | Count | Notes                                                   |
-| ----------------- | ----: | -------------------------------------------------------- |
-| Value             |    13 | Tagged union, ordering across/within tags                |
-| Tuple             |     6 | O(1) name lookup, order-sensitive equality              |
-| Predicate         |     8 | AND/OR short-circuit, deep clone, missing-column false  |
-| Core              |    24 | TX manager, lock matrix, row-level locks, deadlock       |
-| Storage           |     8 | Append-only versioned records, MVCC visible_seq cutoff   |
-| Pager             |    15 | Free-list push/pop, LIFO order, survives reopen, buddy  |
-| BTree             |    14 | Put/remove, split, ordered scan, MVCC                   |
-| EngineLoop        |     8 | End-to-end dispatch, ORDER BY/LIMIT/OFFSET              |
-| EngineDispatcher  |     4 | Metrics snapshot shape, shutdown, 8-session concurrent   |
-| LocalFile         |    18 | Persists across reopen, Backup snapshots                |
-| Sharded           |    16 | Hash/Range/List partitioning, recovery                   |
-| Caching           |     3 | Cache hit/miss                                          |
-| HttpApi           |    10 | JSON encoding, DEFAULT materialization, OpenAPI-ish     |
-| HttpServer        |     6 | Multi-threaded async server lifecycle                    |
-| JsonEncoder       |     7 | Base64/ISO-8601/array-of-arrays                          |
-| SqlParser         |    34 | DDL/DML/TXN, DEFAULT, WHERE/ORDER BY/LIMIT/OFFSET        |
-| Stress            |     3 | 8-thread INSERT, 4-thread REMOVE, 6-thread reads         |
-| **TOTAL**         | **216** | All pass under g++ 14.2.0 C++23 strict warnings        |
+| Suite            |   Count | Notes                                                  |
+| ---------------- | ------: | ------------------------------------------------------ |
+| Value            |      13 | Tagged union, ordering across/within tags              |
+| Tuple            |       6 | O(1) name lookup, order-sensitive equality             |
+| Predicate        |       8 | AND/OR short-circuit, deep clone, missing-column false |
+| Core             |      24 | TX manager, lock matrix, row-level locks, deadlock     |
+| Storage          |       8 | Append-only versioned records, MVCC visible_seq cutoff |
+| Pager            |      15 | Free-list push/pop, LIFO order, survives reopen, buddy |
+| BTree            |      14 | Put/remove, split, ordered scan, MVCC                  |
+| EngineLoop       |       8 | End-to-end dispatch, ORDER BY/LIMIT/OFFSET             |
+| EngineDispatcher |       4 | Metrics snapshot shape, shutdown, 8-session concurrent |
+| LocalFile        |      18 | Persists across reopen, Backup snapshots               |
+| Sharded          |      16 | Hash/Range/List partitioning, recovery                 |
+| Caching          |       3 | Cache hit/miss                                         |
+| HttpApi          |      10 | JSON encoding, DEFAULT materialization, OpenAPI-ish    |
+| HttpServer       |       6 | Multi-threaded async server lifecycle                  |
+| JsonEncoder      |       7 | Base64/ISO-8601/array-of-arrays                        |
+| SqlParser        |      34 | DDL/DML/TXN, DEFAULT, WHERE/ORDER BY/LIMIT/OFFSET      |
+| Stress           |       3 | 8-thread INSERT, 4-thread REMOVE, 6-thread reads       |
+| **TOTAL**        | **216** | All pass under g++ 14.2.0 C++23 strict warnings        |
 
 The deadlock detector test uses real concurrent blocking threads to construct
 a genuine two-txn 2-cycle and verify the origin txn is reported as the victim
@@ -140,12 +140,12 @@ a genuine two-txn 2-cycle and verify the origin txn is reported as the victim
 
 ## Spec decisions (resolved at build time)
 
-| Open question (spec §9)        | Chosen resolution                                                            |
-| ------------------------------ | ---------------------------------------------------------------------------- |
-| INSERT key strategy (Q1)       | **Both** — `_id` column if provided, otherwise engine auto-assigns Int64     |
-| Mutation semantics (Q2)        | **Append-only versioned records** — DELETE writes a tombstone                |
-| Lock conflict behavior (Q3)    | **Block on wait queue** — `acquire()` waits on a condition_variable          |
-| Storage provider vs engine     | **Composition**: provider owns engine (per spec §4.3)                         |
-| WAL / CrashDurable             | **Phase 5**: v0.1 has `commit() → saveMetadata() → pager.sync()` barrier     |
-| Concurrency                    | **Multi-threaded**: EngineDispatcher with worker pool; row-level locks        |
-| HTTP server                    | **Async + multi-threaded**: 1 accept thread, N io threads with select loop    |
+| Open question (spec §9)     | Chosen resolution                                                          |
+| --------------------------- | -------------------------------------------------------------------------- |
+| INSERT key strategy (Q1)    | **Both** — `_id` column if provided, otherwise engine auto-assigns Int64   |
+| Mutation semantics (Q2)     | **Append-only versioned records** — DELETE writes a tombstone              |
+| Lock conflict behavior (Q3) | **Block on wait queue** — `acquire()` waits on a condition_variable        |
+| Storage provider vs engine  | **Composition**: provider owns engine (per spec §4.3)                      |
+| WAL / CrashDurable          | **Phase 5**: v0.1 has `commit() → saveMetadata() → pager.sync()` barrier   |
+| Concurrency                 | **Multi-threaded**: EngineDispatcher with worker pool; row-level locks     |
+| HTTP server                 | **Async + multi-threaded**: 1 accept thread, N io threads with select loop |

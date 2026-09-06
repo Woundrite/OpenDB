@@ -1,20 +1,20 @@
-#include "atomdb/frontend/HttpServer.hpp"
-#include "atomdb/frontend/HttpSession.hpp"
-#include "atomdb/frontend/JsonEncoder.hpp"
-#include "atomdb/frontend/HttpApi.hpp"
-#include "atomdb/core/EngineDispatcher.hpp"
-#include "atomdb/core/TransactionManager.hpp"
-#include "atomdb/core/LockManager.hpp"
-#include "atomdb/core/DeadlockDetector.hpp"
+#include "opendb/frontend/HttpServer.hpp"
+#include "opendb/frontend/HttpSession.hpp"
+#include "opendb/frontend/JsonEncoder.hpp"
+#include "opendb/frontend/HttpApi.hpp"
+#include "opendb/core/EngineDispatcher.hpp"
+#include "opendb/core/TransactionManager.hpp"
+#include "opendb/core/LockManager.hpp"
+#include "opendb/core/DeadlockDetector.hpp"
 #include "HttpServerIoThread.hpp"
-#include "atomdb/frontend/SocketUtils.hpp"
+#include "opendb/frontend/SocketUtils.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <sstream>
 #include <stdexcept>
 
-namespace atomdb {
+namespace opendb {
 
 // Global helpers for HTTP rendering (referenced by HttpServer members).
 std::string renderHttpResponse(int statusCode,
@@ -368,4 +368,4 @@ std::string HttpServer::renderStatsSnapshot() const {
     return os.str();
 }
 
-} // namespace atomdb
+} // namespace opendb

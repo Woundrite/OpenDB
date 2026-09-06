@@ -1,13 +1,13 @@
-#include "atomdb/frontend/SqlParser.hpp"
-#include "atomdb/types/Value.hpp"
-#include "atomdb/types/Predicate.hpp"
-#include "atomdb/types/Schema.hpp"
+#include "opendb/frontend/SqlParser.hpp"
+#include "opendb/types/Value.hpp"
+#include "opendb/types/Predicate.hpp"
+#include "opendb/types/Schema.hpp"
 #include <cctype>
 #include <cstdlib>
 #include <sstream>
 #include <variant>
 
-namespace atomdb {
+namespace opendb {
 
 // -----------------------------------------------------------------------------
 // Helpers
@@ -843,4 +843,4 @@ Tuple SqlParser::parseInsertValueList() {
     return t;
 }
 
-} // namespace atomdb
+} // namespace opendb

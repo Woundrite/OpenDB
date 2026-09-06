@@ -15,23 +15,23 @@
 //        -o build/example_03
 // Run:
 //   ./build/example_03
-//   atomdb> SELECT users WHERE id = 1     # peak cache: 1 hit
-//   atomdb> SELECT users WHERE id = 1     # hit (cached)
-//   atomdb> INSERT users ...              # invalidate
-//   atomdb> SELECT users WHERE id = 1     # miss (cache cleared)
+//   opendb> SELECT users WHERE id = 1     # peak cache: 1 hit
+//   opendb> SELECT users WHERE id = 1     # hit (cached)
+//   opendb> INSERT users ...              # invalidate
+//   opendb> SELECT users WHERE id = 1     # miss (cache cleared)
 
 #include <iostream>
 #include <memory>
 
-#include "atomdb/core/DeadlockDetector.hpp"
-#include "atomdb/core/EngineLoop.hpp"
-#include "atomdb/core/LockManager.hpp"
-#include "atomdb/core/TransactionManager.hpp"
-#include "atomdb/frontend/ReplSource.hpp"
-#include "atomdb/storage/CachingStorageEngine.hpp"
-#include "atomdb/storage/LocalFileStorageProvider.hpp"
+#include "opendb/core/DeadlockDetector.hpp"
+#include "opendb/core/EngineLoop.hpp"
+#include "opendb/core/LockManager.hpp"
+#include "opendb/core/TransactionManager.hpp"
+#include "opendb/frontend/ReplSource.hpp"
+#include "opendb/storage/CachingStorageEngine.hpp"
+#include "opendb/storage/LocalFileStorageProvider.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 int main() {
     TransactionManager txnm;
@@ -70,7 +70,7 @@ int main() {
     ReplSource repl(std::cin, std::cout);
     EngineLoop loop(repl, engine, txnm, lock_mgr, deadlock);
 
-    std::cout << "\natomdb caching example"
+    std::cout << "\nopendb caching example"
               << "\n  outer engine : CachingStorageEngine"
               << "\n  inner engine : LocalFileStorageProvider::engine()"
               << "\n  policy       : cache committed gets; invalidate on put"

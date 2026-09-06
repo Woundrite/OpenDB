@@ -1,9 +1,11 @@
 # OpenDB Build Guide
 
 ## Overview
+
 This guide provides comprehensive instructions for building OpenDB from source on fresh hardware. OpenDB is an embedded SQL database engine written in C++23, designed for high-performance embedded workloads.
 
 ## Table of Contents
+
 1. [System Requirements](#system-requirements)
 2. [Dependencies](#dependencies)
 3. [Build Instructions](#build-instructions)
@@ -17,30 +19,34 @@ This guide provides comprehensive instructions for building OpenDB from source o
 ## System Requirements
 
 ### Minimum Hardware
+
 - **CPU**: x86_64 (Intel/AMD) with SSE4.2 support
 - **RAM**: 2 GB minimum (4 GB recommended for development)
 - **Disk**: 500 MB free space (1 GB recommended for build artifacts)
 
 ### Operating System Support
-| OS | Status | Notes |
-|----|--------|-------|
+
+| OS                                                  | Status             | Notes                        |
+| --------------------------------------------------- | ------------------ | ---------------------------- |
 | Linux (Ubuntu 20.04+, Debian 11+, Fedora 35+, Arch) | ✅ Fully Supported | Primary development platform |
-| Windows 10/11 (MSYS2/MinGW-w64) | ✅ Fully Supported | Via MSYS2 shell |
-| macOS 12+ (Intel/Apple Silicon) | ⚠️ Experimental | Requires Homebrew LLVM |
+| Windows 10/11 (MSYS2/MinGW-w64)                     | ✅ Fully Supported | Via MSYS2 shell              |
+| macOS 12+ (Intel/Apple Silicon)                     | ⚠️ Experimental    | Requires Homebrew LLVM       |
 
 ### Required Toolchain
-| Tool | Minimum Version | Verification Command |
-|------|-----------------|---------------------|
-| C++ Compiler | GCC 13+ / Clang 16+ / MSVC 19.40+ | `g++ --version` |
-| C++ Standard | C++23 (C++2b draft) | Compiler must support `-std=c++2b` |
-| Build System | GNU Make 4.3+ / Ninja 1.11+ | `make --version` |
-| Git | 2.30+ | `git --version` |
+
+| Tool         | Minimum Version                   | Verification Command               |
+| ------------ | --------------------------------- | ---------------------------------- |
+| C++ Compiler | GCC 13+ / Clang 16+ / MSVC 19.40+ | `g++ --version`                    |
+| C++ Standard | C++23 (C++2b draft)               | Compiler must support `-std=c++2b` |
+| Build System | GNU Make 4.3+ / Ninja 1.11+       | `make --version`                   |
+| Git          | 2.30+                             | `git --version`                    |
 
 ---
 
 ## Dependencies
 
 ### System Libraries (Linux/macOS)
+
 ```bash
 # Ubuntu/Debian
 sudo apt-get update && sudo apt-get install -y \
@@ -65,6 +71,7 @@ brew install llvm make git
 ```
 
 ### System Libraries (Windows - MSYS2)
+
 ```bash
 # In MSYS2 UCRT64 shell
 pacman -S --needed \
@@ -75,7 +82,9 @@ pacman -S --needed \
 ```
 
 ### No External Runtime Dependencies
+
 OpenDB is designed as a zero-dependency embedded database:
+
 - **No external libraries required at runtime**
 - Only standard C++ library and POSIX/Windows threading APIs
 - Optional: OpenSSL for TLS (compile-time option)
@@ -85,12 +94,14 @@ OpenDB is designed as a zero-dependency embedded database:
 ## Build Instructions
 
 ### 1. Clone Repository
+
 ```bash
 git clone https://github.com/your-org/opendb.git
 cd opendb
 ```
 
 ### 2. Verify Toolchain
+
 ```bash
 # Verify C++23 support
 g++ --version
@@ -104,6 +115,7 @@ echo 'int main() {}' | g++ -std=c++2b -x c++ -
 ### 3. Build Options
 
 #### Option A: GNU Make (Recommended)
+
 ```bash
 # Standard build (all targets)
 make
@@ -125,6 +137,7 @@ make help
 ```
 
 #### Option B: Manual Build (Cross-platform)
+
 ```bash
 # Create build directories
 mkdir -p build/obj build/tests
@@ -178,6 +191,7 @@ g++ -std=c++2b -Wall -Wextra -Iincludes \
 ```
 
 #### Option C: Windows PowerShell Script (build.ps1)
+
 ```powershell
 # Run the provided build script
 .\build.ps1
@@ -187,6 +201,7 @@ g++ -std=c++2b -Wall -Wextra -Iincludes \
 ```
 
 ### 4. Build Output Structure
+
 ```
 build/
 ├── obj/
@@ -226,7 +241,7 @@ build/
 ├── api_test.exe           # HttpApi tests
 ├── hs_test.exe            # HttpServer tests
 ├── test_runner.exe        # Main test runner
-└── atomdb.exe             # REPL binary (if built)
+└── opendb.exe             # REPL binary (if built)
 ```
 
 ---
@@ -234,6 +249,7 @@ build/
 ## Verification
 
 ### Run All Tests
+
 ```bash
 # Using Make
 make test
@@ -252,6 +268,7 @@ The full suite is **247 `TEST()` cases across 17 test files**; these per-suite
 executables are convenience subsets and do not sum to it. Canonical run is
 `make test`: currently **243 pass / 4 fail** — deterministic, pre-existing Pager
 free-list/migration bugs (see docs/PHASE1-CHANGELOG.md). No hangs.
+
 ```
 ==== PASSED 243 / FAILED 4 ====
 [  FAILED  ] LocalFile_DropTable_FreePages_Survive_Reopen
@@ -261,24 +278,27 @@ free-list/migration bugs (see docs/PHASE1-CHANGELOG.md). No hangs.
 ```
 
 ### Expected Test Output
+
 ```
 ==== PASSED 243 / FAILED 4 ====
 ```
 
 ### Run REPL (Interactive Mode)
+
 ```bash
-./build/atomdb
+./build/opendb
 # Should start interactive SQL REPL
 # Type EXIT to quit
 ```
 
 ### Run Smoke Test
+
 ```bash
 # Automated smoke test
 make smoke
 
 # Manual smoke test
-echo -e "CREATE TABLE users (id INT PRIMARY KEY, name TEXT)\nINSERT INTO users VALUES (1, 'test')\nSELECT * FROM users\nEXIT" | ./build/atomdb
+echo -e "CREATE TABLE users (id INT PRIMARY KEY, name TEXT)\nINSERT INTO users VALUES (1, 'test')\nSELECT * FROM users\nEXIT" | ./build/opendb
 ```
 
 ---
@@ -288,61 +308,78 @@ echo -e "CREATE TABLE users (id INT PRIMARY KEY, name TEXT)\nINSERT INTO users V
 ### Common Build Issues
 
 #### 1. C++23 Not Supported
+
 ```
 error: unrecognized command line option '-std=c++2b'
 ```
+
 **Solution**: Upgrade compiler to GCC 13+, Clang 16+, or MSVC 19.40+
 
 #### 2. Missing pthread on Windows
+
 ```
 undefined reference to 'pthread_create'
 ```
+
 **Solution**: Link with `-lws2_32 -lpthread` on Windows, ensure pthreads-w32 or winpthreads installed
 
 #### 3. Missing semaphore header (C++20)
+
 ```
 fatal error: semaphore: No such file or directory
 ```
+
 **Solution**: Use GCC 13+ with libstdc++ that supports `<semaphore>`, or use GCC 14+
 
 #### 4. Windows select() not found
+
 ```
 undefined reference to 'select'
 ```
+
 **Solution**: Link with `-lws2_32` on Windows
 
 #### 5. Permission denied on build directory
+
 ```
 Permission denied: build/obj/BTree.o
 ```
+
 **Solution**: Ensure write permissions, run `chmod -R 755 build/` (Linux/macOS) or run as Administrator (Windows)
 
 ### Test Failures
 
 #### 1. Stress tests timeout
+
 ```
 Stress_Concurrent_Insert_NoDataRace: TIMEOUT
 ```
+
 **Solution**: Increase test timeout or run with fewer concurrent threads
 
 #### 2. Socket tests fail on CI
+
 ```
 HttpServer_Configuration_Port_Zero_Lets_OS_Choose: FAILED
 ```
+
 **Solution**: Ensure port 0 binding works (requires root on Linux for ports < 1024, use high ports)
 
 ### Platform-Specific Notes
 
 #### Linux
+
 - Use `taskset -c 0-3 ./build/core_test` to pin to specific cores for reproducible benchmarks
 - Enable `sysctl -w net.core.somaxconn=4096` for high connection tests
 
 #### Windows
+
 - Run in MSYS2 UCRT64 shell for best compatibility
 - Use `g++` from `mingw-w64-ucrt-x86_64-gcc` package
 - Disable Windows Defender for build directory for faster builds
 
 #### macOS
+
 - Use Homebrew LLVM: `brew install llvm && export PATH="/opt/homebrew/opt/llvm/bin:$PATH"`
 - Set `CC=/opt/homebrew/opt/llvm/bin/clang++` for CMake/Make
 
@@ -353,14 +390,14 @@ HttpServer_Configuration_Port_Zero_Lets_OS_Choose: FAILED
 ```
 opendb/
 ├── includes/                 # Public headers
-│   ├── atomdb/
+│   ├── opendb/
 │   │   ├── contracts/       # Interface definitions (IStorageProvider, IEngineDispatcher, etc.)
 │   │   ├── core/            # Core engine headers (EngineDispatcher, TransactionManager, LockManager, DeadlockDetector)
 │   │   ├── frontend/        # Frontend headers (HttpServer, HttpApi, JsonEncoder, SqlParser)
 │   │   ├── storage/         # Storage engine headers (InMemoryStorageEngine, LocalFileStorageEngine)
 │   │   ├── types/           # Core types (Value, Tuple, TupleId, Predicate, Command, DbError)
 │   │   └── frontend/        # Frontend utilities (SocketUtils, JsonEncoder)
-│   └── atomdb/              # Main namespace
+│   └── opendb/              # Main namespace
 ├── src/                      # Source files
 │   ├── BTree.cpp            # B+Tree implementation
 │   ├── BuddyPageAllocator.cpp
@@ -392,39 +429,44 @@ opendb/
 ## Dependencies Detail
 
 ### Core Dependencies (Zero External)
-| Component | Purpose | Implementation |
-|-----------|---------|----------------|
-| BTree | Index storage | Custom B+Tree implementation |
-| BuddyPageAllocator | Memory allocation | Binary buddy system |
-| EngineDispatcher | Thread pool | std::jthread + counting_semaphore |
-| LockManager | Concurrency control | Shared/Exclusive locks with wait queues |
-| DeadlockDetector | Deadlock prevention | Wait-for graph cycle detection |
-| TransactionManager | Transaction state | MVCC with commit sequencing |
-| Pager | Page management | File-based paging with WAL |
-| SqlParser | SQL parsing | Recursive descent parser |
-| JsonEncoder | JSON serialization | Custom encoder with Base64/UTF-8 |
-| JsonParser | JSON parsing | Recursive descent with UTF-8/Unicode |
-| HttpServer | HTTP server | select()-based async I/O |
-| HttpApi | HTTP API plugin | JSON-over-HTTP SQL execution |
-| SqlParser | SQL parsing | Recursive descent parser |
+
+| Component          | Purpose             | Implementation                          |
+| ------------------ | ------------------- | --------------------------------------- |
+| BTree              | Index storage       | Custom B+Tree implementation            |
+| BuddyPageAllocator | Memory allocation   | Binary buddy system                     |
+| EngineDispatcher   | Thread pool         | std::jthread + counting_semaphore       |
+| LockManager        | Concurrency control | Shared/Exclusive locks with wait queues |
+| DeadlockDetector   | Deadlock prevention | Wait-for graph cycle detection          |
+| TransactionManager | Transaction state   | MVCC with commit sequencing             |
+| Pager              | Page management     | File-based paging with WAL              |
+| SqlParser          | SQL parsing         | Recursive descent parser                |
+| JsonEncoder        | JSON serialization  | Custom encoder with Base64/UTF-8        |
+| JsonParser         | JSON parsing        | Recursive descent with UTF-8/Unicode    |
+| HttpServer         | HTTP server         | select()-based async I/O                |
+| HttpApi            | HTTP API plugin     | JSON-over-HTTP SQL execution            |
+| SqlParser          | SQL parsing         | Recursive descent parser                |
 
 ### Storage Providers (Pluggable)
-| Provider | Type | Use Case |
-|----------|------|----------|
-| InMemoryStorageEngine | In-memory | Testing, caching |
-| LocalFileStorageEngine | File-based | Production single-node |
-| ShardedStorageEngine | Distributed | Horizontal scaling |
+
+| Provider               | Type        | Use Case               |
+| ---------------------- | ----------- | ---------------------- |
+| InMemoryStorageEngine  | In-memory   | Testing, caching       |
+| LocalFileStorageEngine | File-based  | Production single-node |
+| ShardedStorageEngine   | Distributed | Horizontal scaling     |
 
 ### Build Dependencies (Compile-time Only)
-| Dependency | Version | Purpose |
-|------------|---------|---------|
-| GCC/Clang/MSVC | 13+/16+/19.40+ | C++23 compiler |
-| Standard Library | C++23 | std::jthread, semaphore, expected, etc. |
-| pthreads/Win32 Threads | System | Threading |
-| Winsock2 / POSIX sockets | System | Networking |
+
+| Dependency               | Version        | Purpose                                 |
+| ------------------------ | -------------- | --------------------------------------- |
+| GCC/Clang/MSVC           | 13+/16+/19.40+ | C++23 compiler                          |
+| Standard Library         | C++23          | std::jthread, semaphore, expected, etc. |
+| pthreads/Win32 Threads   | System         | Threading                               |
+| Winsock2 / POSIX sockets | System         | Networking                              |
 
 ### No Runtime Dependencies
+
 OpenDB links statically against all dependencies. The only runtime requirements are:
+
 - Standard C++ library (libstdc++ / libc++ / MSVC STL)
 - OS threading primitives (pthread / Win32 threads)
 - OS networking (Winsock2 / POSIX sockets)
@@ -435,6 +477,7 @@ OpenDB links statically against all dependencies. The only runtime requirements 
 ## Appendix: Configuration Options
 
 ### HttpServer Config
+
 ```cpp
 HttpServer::Config cfg;
 cfg.port = 8080;                    // Default: 8080
@@ -447,6 +490,7 @@ cfg.tlsContext = nullptr;           // Optional SSL_CTX*
 ```
 
 ### EngineDispatcher Config
+
 ```cpp
 EngineDispatcher dispatcher(
     4,                    // workerCount (default: hardware_concurrency)
@@ -458,6 +502,7 @@ EngineDispatcher dispatcher(
 ```
 
 ### Storage Engine Config
+
 ```cpp
 // In-Memory
 auto storage = std::make_unique<InMemoryStorageProvider>();
@@ -475,9 +520,10 @@ storage->open("sharded://shard1,shard2,shard3");
 ---
 
 ## License
+
 MIT License - See LICENSE file for details.
 
 ---
 
-*OpenDB v0.1 — Production Readiness Backlog, Phase 1*
-*Full suite: 247 tests, 243 passing / 4 known Pager failures — see docs/PHASE1-CHANGELOG.md*
+_OpenDB v0.1 — Production Readiness Backlog, Phase 1_
+_Full suite: 247 tests, 243 passing / 4 known Pager failures — see docs/PHASE1-CHANGELOG.md_

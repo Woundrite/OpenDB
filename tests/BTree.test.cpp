@@ -5,13 +5,13 @@
 #include <string>
 #include <vector>
 
-#include "atomdb/storage/BTree.hpp"
-#include "atomdb/storage/Pager.hpp"
-#include "atomdb/types/Tuple.hpp"
-#include "atomdb/types/TxnId.hpp"
-#include "atomdb/types/Value.hpp"
+#include "opendb/storage/BTree.hpp"
+#include "opendb/storage/Pager.hpp"
+#include "opendb/types/Tuple.hpp"
+#include "opendb/types/TxnId.hpp"
+#include "opendb/types/Value.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 namespace {
 constexpr const char* kTmpDir = "build";

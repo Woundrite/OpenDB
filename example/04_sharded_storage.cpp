@@ -16,9 +16,9 @@
 //        -o build/example_04
 // Run:
 //   ./build/example_04
-//   atomdb> INSERT users { id:1, name:alice }
-//   atomdb> SELECT users
-//   atomdb> EXIT
+//   opendb> INSERT users { id:1, name:alice }
+//   opendb> SELECT users
+//   opendb> EXIT
 //   ./build/example_04     # rows survive
 //
 // Variations:
@@ -34,16 +34,16 @@
 #include <string>
 #include <vector>
 
-#include "atomdb/core/DeadlockDetector.hpp"
-#include "atomdb/core/EngineLoop.hpp"
-#include "atomdb/core/LockManager.hpp"
-#include "atomdb/core/TransactionManager.hpp"
-#include "atomdb/frontend/ReplSource.hpp"
-#include "atomdb/storage/InMemoryStorageProvider.hpp"
-#include "atomdb/storage/LocalFileStorageProvider.hpp"
-#include "atomdb/storage/ShardedStorageProvider.hpp"
+#include "opendb/core/DeadlockDetector.hpp"
+#include "opendb/core/EngineLoop.hpp"
+#include "opendb/core/LockManager.hpp"
+#include "opendb/core/TransactionManager.hpp"
+#include "opendb/frontend/ReplSource.hpp"
+#include "opendb/storage/InMemoryStorageProvider.hpp"
+#include "opendb/storage/LocalFileStorageProvider.hpp"
+#include "opendb/storage/ShardedStorageProvider.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 // Factory: open one LocalFile shard rooted at the given URI. We use
 // LocalFile here so each shard survives across process restarts. Swap to
@@ -117,7 +117,7 @@ int main() {
     ReplSource repl(std::cin, std::cout);
     EngineLoop loop(repl, engine, txnm, lock_mgr, deadlock);
 
-    std::cout << "\natomdb persistent-sharded example"
+    std::cout << "\nopendb persistent-sharded example"
               << "\n  provider  : ShardedStorageProvider"
               << "\n  shards    : " << kShards
               << " x LocalFileStorageProvider (Pager-backed B-Tree)"

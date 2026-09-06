@@ -1,4 +1,4 @@
-#include "atomdb/storage/BTree.hpp"
+#include "opendb/storage/BTree.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -8,7 +8,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace atomdb {
+namespace opendb {
 
 // ---- BTree constructor ------------------------------------------------------
 
@@ -575,4 +575,4 @@ void BTree::freeAllPages() {
     root_page_id_ = 0;
 }
 
-} // namespace atomdb
+} // namespace opendb

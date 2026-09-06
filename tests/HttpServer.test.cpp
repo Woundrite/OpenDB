@@ -1,23 +1,23 @@
-#include "atomdb/frontend/HttpServer.hpp"
-#include "atomdb/frontend/HttpSession.hpp"
-#include "atomdb/frontend/JsonEncoder.hpp"
-#include "atomdb/frontend/HttpApi.hpp"
-#include "atomdb/core/EngineDispatcher.hpp"
-#include "atomdb/core/TransactionManager.hpp"
-#include "atomdb/core/LockManager.hpp"
-#include "atomdb/core/DeadlockDetector.hpp"
-#include "atomdb/storage/InMemoryStorageProvider.hpp"
-#include "atomdb/types/Schema.hpp"
-#include "atomdb/types/Tuple.hpp"
-#include "atomdb/types/Value.hpp"
-#include "atomdb/types/TxnId.hpp"
-#include "atomdb/contracts/IStorageProvider.hpp"
+#include "opendb/frontend/HttpServer.hpp"
+#include "opendb/frontend/HttpSession.hpp"
+#include "opendb/frontend/JsonEncoder.hpp"
+#include "opendb/frontend/HttpApi.hpp"
+#include "opendb/core/EngineDispatcher.hpp"
+#include "opendb/core/TransactionManager.hpp"
+#include "opendb/core/LockManager.hpp"
+#include "opendb/core/DeadlockDetector.hpp"
+#include "opendb/storage/InMemoryStorageProvider.hpp"
+#include "opendb/types/Schema.hpp"
+#include "opendb/types/Tuple.hpp"
+#include "opendb/types/Value.hpp"
+#include "opendb/types/TxnId.hpp"
+#include "opendb/contracts/IStorageProvider.hpp"
 #include "test_framework.hpp"
 
 #include <chrono>
 #include <thread>
 
-using namespace atomdb;
+using namespace opendb;
 
 TEST(HttpServer_Configuration_Port_Zero_Lets_OS_Choose) {
     auto provider = std::make_unique<InMemoryStorageProvider>();

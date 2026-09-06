@@ -1,11 +1,11 @@
-#include "atomdb/storage/BuddyPageAllocator.hpp"
-#include "atomdb/contracts/IPageAllocator.hpp"
+#include "opendb/storage/BuddyPageAllocator.hpp"
+#include "opendb/contracts/IPageAllocator.hpp"
 
 #include <algorithm>
 #include <cassert>
 #include <cstring>
 
-namespace atomdb {
+namespace opendb {
 
 using PageId = IPageAllocator::PageId;
 
@@ -188,4 +188,4 @@ std::size_t BuddyPageAllocator::maxObservedClass() const {
     return 0;
 }
 
-} // namespace atomdb
+} // namespace opendb

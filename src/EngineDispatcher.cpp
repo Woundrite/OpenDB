@@ -1,20 +1,20 @@
-#include "atomdb/core/EngineDispatcher.hpp"
-#include "atomdb/contracts/IAccessPlugin.hpp"
-#include "atomdb/contracts/ICommandSource.hpp"
-#include "atomdb/contracts/IStorageProvider.hpp"
-#include "atomdb/contracts/IStorageEngine.hpp"
-#include "atomdb/core/TransactionManager.hpp"
-#include "atomdb/core/LockManager.hpp"
-#include "atomdb/core/DeadlockDetector.hpp"
-#include "atomdb/types/Command.hpp"
-#include "atomdb/types/Result.hpp"
-#include "atomdb/types/DbError.hpp"
-#include "atomdb/types/TxnId.hpp"
+#include "opendb/core/EngineDispatcher.hpp"
+#include "opendb/contracts/IAccessPlugin.hpp"
+#include "opendb/contracts/ICommandSource.hpp"
+#include "opendb/contracts/IStorageProvider.hpp"
+#include "opendb/contracts/IStorageEngine.hpp"
+#include "opendb/core/TransactionManager.hpp"
+#include "opendb/core/LockManager.hpp"
+#include "opendb/core/DeadlockDetector.hpp"
+#include "opendb/types/Command.hpp"
+#include "opendb/types/Result.hpp"
+#include "opendb/types/DbError.hpp"
+#include "opendb/types/TxnId.hpp"
 #include <chrono>
 #include <iostream>
 #include <sstream>
 
-namespace atomdb {
+namespace opendb {
 
 EngineDispatcher::EngineDispatcher(
         std::size_t workerCount,
@@ -81,6 +81,24 @@ std::size_t EngineDispatcher::pendingCount() const {
     return queue_.size();
 }
 
+// K.1 session timeout: send a query-timeout error on the session (which ends
+// the wire protocol for HTTP) and return true so the worker stops processing
+// the session. A running query is not preempted mid-dispatch — the boundary
+// check happens between commands, which bounds cumulative session time.
+bool EngineDispatcher::checkQueryTimeout(
+    ISession* session,
+    const std::chrono::steady_clock::time_point& startTime) {
+
+    if (queryTimeout_.count() <= 0) return false;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - startTime < queryTimeout_) return false;
+
+    session->present(DbError::queryTimeout(
+        "session exceeded query timeout of " +
+        std::to_string(queryTimeout_.count()) + " ms"));
+    return true;
+}
+
 void EngineDispatcher::workerLoop(std::size_t workerId) {
     (void)workerId; // unused for now
     while (running_.load()) {
@@ -122,8 +140,21 @@ void EngineDispatcher::runSession(std::unique_ptr<ISession> session) {
         return;
     }
 
-    // Session loop: pull commands and dispatch via EngineLoop logic
+    // Session loop: pull commands and dispatch via EngineLoop logic.
+    // K.1 query timeout: check before every command boundary. When exceeded,
+    // we abort any in-flight transaction (release locks, discard staged
+    // writes), tell the caller via a query-time workload error, and stop the
+    // session.
+    //
+    // G.1: locks for explicit transactions stay held across commands until
+    // the client commits/rolls back. openTxns tracks them so a session that
+    // disconnects mid-transaction can't leak locks.
+    std::vector<TxnId> openTxns;
     for (;;) {
+        if (checkQueryTimeout(session.get(), t0)) {
+            ok = false;
+            break;
+        }
         auto optCmd = session->nextCommand();
         if (!optCmd) break; // EOF
 
@@ -134,7 +165,7 @@ void EngineDispatcher::runSession(std::unique_ptr<ISession> session) {
         TxnId txnId = cmd.txnId.value_or(txnm_.beginTxn());
 
         // Determine lock mode
-        using atomdb::LockMode;
+        using opendb::LockMode;
         LockMode mode = (cmd.type == CommandType::Select) ? LockMode::Shared : LockMode::Exclusive;
 
         // Deadlock pre-check
@@ -147,7 +178,7 @@ void EngineDispatcher::runSession(std::unique_ptr<ISession> session) {
         }
 
         // Acquire lock with timeout
-        using atomdb::LockAcquireResult;
+        using opendb::LockAcquireResult;
         auto acquireResult = lockMgr_.tryAcquire(txnId, cmd.table, mode, lockTimeout_);
         if (acquireResult == LockAcquireResult::TimedOut) {
             txnm_.abortTxn(txnId);
@@ -255,8 +286,20 @@ void EngineDispatcher::runSession(std::unique_ptr<ISession> session) {
             if (!commitErr.isSentinel()) {
                 session->present(commitErr);
             }
+            lockMgr_.release(txnId);
+        } else {
+            // G.1: explicit transaction — keep the lock held; the client's
+            // COMMIT/ROLLBACK releases it. Remember the txn so the session
+            // teardown below can clean up if the client vanishes first.
+            openTxns.push_back(txnId);
         }
-        lockMgr_.release(txnId);
+    }
+
+    // G.1 leak guard: anything still open at session end gets aborted and
+    // its locks released, so a dropped connection can't leak locks.
+    for (TxnId t : openTxns) {
+        storage_->engine()->abort(t);
+        lockMgr_.release(t);
     }
 
     // Close session transport
@@ -309,4 +352,4 @@ std::string EngineDispatcher::renderMetricsSnapshot() const {
     return os.str();
 }
 
-} // namespace atomdb
+} // namespace opendb

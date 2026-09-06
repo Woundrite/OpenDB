@@ -1,11 +1,11 @@
-#include "atomdb/frontend/JsonEncoder.hpp"
-#include "atomdb/types/Result.hpp"
-#include "atomdb/types/Tuple.hpp"
-#include "atomdb/types/Value.hpp"
-#include "atomdb/types/DbError.hpp"
+#include "opendb/frontend/JsonEncoder.hpp"
+#include "opendb/types/Result.hpp"
+#include "opendb/types/Tuple.hpp"
+#include "opendb/types/Value.hpp"
+#include "opendb/types/DbError.hpp"
 #include "test_framework.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 TEST(JsonEncoder_Null_Bool_Numbers_Roundtrip_Literals) {
     ResultSet rs;

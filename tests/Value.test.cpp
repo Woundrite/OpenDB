@@ -1,8 +1,8 @@
 #include "test_framework.hpp"
 
-#include "atomdb/types/Value.hpp"
+#include "opendb/types/Value.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 // Tag order per spec.
 // Test document comment: Int32(5) and Int64(5) compare numerically equal

@@ -1,20 +1,20 @@
-#include "atomdb/frontend/HttpApi.hpp"
-#include "atomdb/storage/InMemoryStorageProvider.hpp"
-#include "atomdb/types/Schema.hpp"
-#include "atomdb/types/Value.hpp"
-#include "atomdb/types/Result.hpp"
-#include "atomdb/frontend/JsonEncoder.hpp"
-#include "atomdb/contracts/IAccessPlugin.hpp"
-#include "atomdb/core/TransactionManager.hpp"
-#include "atomdb/core/LockManager.hpp"
-#include "atomdb/core/DeadlockDetector.hpp"
+#include "opendb/frontend/HttpApi.hpp"
+#include "opendb/storage/InMemoryStorageProvider.hpp"
+#include "opendb/types/Schema.hpp"
+#include "opendb/types/Value.hpp"
+#include "opendb/types/Result.hpp"
+#include "opendb/frontend/JsonEncoder.hpp"
+#include "opendb/contracts/IAccessPlugin.hpp"
+#include "opendb/core/TransactionManager.hpp"
+#include "opendb/core/LockManager.hpp"
+#include "opendb/core/DeadlockDetector.hpp"
 #include "../tests/test_framework.hpp"
 #include <memory>
 
 // Simple mock dispatcher for testing
-class MockDispatcher : public atomdb::IEngineDispatcher {
+class MockDispatcher : public opendb::IEngineDispatcher {
 public:
-    void enqueue(std::unique_ptr<atomdb::ISession> /*session*/) override {
+    void enqueue(std::unique_ptr<opendb::ISession> /*session*/) override {
         // Do nothing in test
     }
     std::string renderMetricsSnapshot() const override {
@@ -22,7 +22,7 @@ public:
     }
 };
 
-using namespace atomdb;
+using namespace opendb;
 
 TEST(HttpApi_BasicQuery) {
     auto storage = std::make_unique<InMemoryStorageProvider>();

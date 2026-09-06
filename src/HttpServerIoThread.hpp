@@ -1,5 +1,5 @@
-#ifndef ATOMDB_HTTP_SERVER_IO_THREAD_HPP
-#define ATOMDB_HTTP_SERVER_IO_THREAD_HPP
+#ifndef OPENDB_HTTP_SERVER_IO_THREAD_HPP
+#define OPENDB_HTTP_SERVER_IO_THREAD_HPP
 
 #include <atomic>
 #include <chrono>
@@ -12,9 +12,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "atomdb/frontend/HttpServer.hpp"
+#include "opendb/frontend/HttpServer.hpp"
 
-namespace atomdb {
+namespace opendb {
 
 // Forward
 class IoThread;
@@ -105,6 +105,6 @@ private:
 #endif
 };
 
-} // namespace atomdb
+} // namespace opendb
 
-#endif // ATOMDB_HTTP_SERVER_IO_THREAD_HPP
+#endif // OPENDB_HTTP_SERVER_IO_THREAD_HPP

@@ -4,14 +4,14 @@
 #include <thread>
 #include <vector>
 
-#include "atomdb/core/TransactionManager.hpp"
-#include "atomdb/storage/InMemoryStorageProvider.hpp"
-#include "atomdb/types/Schema.hpp"
-#include "atomdb/types/Tuple.hpp"
-#include "atomdb/types/TxnId.hpp"
-#include "atomdb/types/Value.hpp"
+#include "opendb/core/TransactionManager.hpp"
+#include "opendb/storage/InMemoryStorageProvider.hpp"
+#include "opendb/types/Schema.hpp"
+#include "opendb/types/Tuple.hpp"
+#include "opendb/types/TxnId.hpp"
+#include "opendb/types/Value.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 namespace {
 Schema makeUsersSchema() {

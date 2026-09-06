@@ -2,11 +2,11 @@
 
 #include <vector>
 
-#include "atomdb/contracts/IStorageEngine.hpp"
-#include "atomdb/core/TransactionManager.hpp"
-#include "atomdb/storage/InMemoryStorageEngine.hpp"
+#include "opendb/contracts/IStorageEngine.hpp"
+#include "opendb/core/TransactionManager.hpp"
+#include "opendb/storage/InMemoryStorageEngine.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 TEST(Storage_Put_And_Get_Round_Trip) {
     InMemoryStorageEngine s;

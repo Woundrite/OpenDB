@@ -1,0 +1,2 @@
+opendb v0.1 http — listening on port 8765 (storage: in-memory://).
+bye

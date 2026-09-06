@@ -1,5 +1,5 @@
-#ifndef ATOMDB_TEST_FRAMEWORK_HPP
-#define ATOMDB_TEST_FRAMEWORK_HPP
+#ifndef OPENDB_TEST_FRAMEWORK_HPP
+#define OPENDB_TEST_FRAMEWORK_HPP
 
 #include <cstdio>
 #include <cstdlib>
@@ -8,7 +8,7 @@
 #include <string_view>
 #include <vector>
 
-namespace atomdb::test {
+namespace opendb::test {
 
 struct Test {
     std::string name;
@@ -74,25 +74,25 @@ inline int run_all() {
     return failed == 0 ? 0 : 1;
 }
 
-} // namespace atomdb::test
+} // namespace opendb::test
 
-#define ATOMDB_TEST_NAME_2(name, line) atomdb_test_##name##_##line
-#define ATOMDB_TEST_NAME_1(name, line) ATOMDB_TEST_NAME_2(name, line)
-#define ATOMDB_TEST_NAME(name) ATOMDB_TEST_NAME_1(name, __LINE__)
+#define OPENDB_TEST_NAME_2(name, line) opendb_test_##name##_##line
+#define OPENDB_TEST_NAME_1(name, line) OPENDB_TEST_NAME_2(name, line)
+#define OPENDB_TEST_NAME(name) OPENDB_TEST_NAME_1(name, __LINE__)
 
 #define TEST(name)                                                              \
-    static void ATOMDB_TEST_NAME(name)();                                       \
-    static int ATOMDB_TEST_NAME(_reg_##name) = [] {                             \
-        ::atomdb::test::Registry::instance().add(#name,                         \
-            ATOMDB_TEST_NAME(name));                                            \
+    static void OPENDB_TEST_NAME(name)();                                       \
+    static int OPENDB_TEST_NAME(_reg_##name) = [] {                             \
+        ::opendb::test::Registry::instance().add(#name,                         \
+            OPENDB_TEST_NAME(name));                                            \
         return 0;                                                              \
     }();                                                                       \
-    static void ATOMDB_TEST_NAME(name)()
+    static void OPENDB_TEST_NAME(name)()
 
 #define EXPECT(expr)                                                           \
     do {                                                                       \
         if (!(expr)) {                                                         \
-            ::atomdb::test::fail(__FILE__, __LINE__, #expr);                    \
+            ::opendb::test::fail(__FILE__, __LINE__, #expr);                    \
         }                                                                      \
     } while (0)
 
@@ -101,7 +101,7 @@ inline int run_all() {
         auto&& _a = (a);                                                       \
         auto&& _b = (b);                                                       \
         if (!(_a == _b)) {                                                     \
-            ::atomdb::test::fail(__FILE__, __LINE__,                           \
+            ::opendb::test::fail(__FILE__, __LINE__,                           \
                 std::string(#a " == " #b " failed: got ") +                     \
                 std::to_string(_a) + " expected " + std::to_string(_b));        \
         }                                                                      \
@@ -113,9 +113,9 @@ inline int run_all() {
         try { (void)(expr); }                                                  \
         catch (...) { _threw = true; }                                         \
         if (!_threw) {                                                         \
-            ::atomdb::test::fail(__FILE__, __LINE__,                           \
+            ::opendb::test::fail(__FILE__, __LINE__,                           \
                 std::string(#expr " did not throw"));                          \
         }                                                                      \
     } while (0)
 
-#endif // ATOMDB_TEST_FRAMEWORK_HPP
+#endif // OPENDB_TEST_FRAMEWORK_HPP

@@ -1,13 +1,13 @@
 #
-# AtomDB Makefile (spec §6.2 + §6.3).
+# OpenDB Makefile (spec §6.2 + §6.3).
 #
 # Cross-platform: detects the compiler (g++ / clang++ / cl), picks C++23 mode,
 # and falls back between POSIX-style and Windows-style directory creation.
 # Compile strict warnings, treat warnings as errors.
 #
 # Targets:
-#   make              -> build/atomdb (REPL), build/test_runner (unit tests)
-#   make run          -> build/atomdb with stdin/stdout attached
+#   make              -> build/opendb (REPL), build/test_runner (unit tests)
+#   make run          -> build/opendb with stdin/stdout attached
 #   make test         -> run the test runner
 #   make smoke        -> run the milestone-5 end-to-end smoke test
 #   make clean        -> wipe build/
@@ -70,7 +70,7 @@ TST_OBJ   := $(patsubst tests/%.cpp,$(TST_OBJDIR)/%.o,$(TST_FILES))
 # -- Phony ---------------------------------------------------------------------
 .PHONY: all run test smoke clean
 
-all: $(BUILD)/atomdb$(EXE) $(BUILD)/test_runner$(EXE)
+all: $(BUILD)/opendb$(EXE) $(BUILD)/test_runner$(EXE)
 
 # -- Directory bootstrap (created up-front) -----------------------------------
 $(SRC_OBJDIR) $(TST_OBJDIR):
@@ -84,7 +84,7 @@ $(TST_OBJDIR)/%.o: tests/%.cpp tests/test_framework.hpp | $(TST_OBJDIR)
 	$(CXX) $(CXXSTD) $(WARNINGS) $(INCLUDES) -c $< -o $@
 
 # -- Linking -------------------------------------------------------------------
-$(BUILD)/atomdb$(EXE): $(SRC_OBJ) include-deps | $(BUILD)
+$(BUILD)/opendb$(EXE): $(SRC_OBJ) include-deps | $(BUILD)
 ifneq ($(CXX),g++)
 ifneq ($(CXX),clang++)
 	$(CXX) /Fe:$@ $(WARNINGS) $(SRC_OBJ)
@@ -105,8 +105,8 @@ else
 endif
 
 # -- Run / test / smoke --------------------------------------------------------
-run: $(BUILD)/atomdb$(EXE)
-	./$(BUILD)/atomdb$(EXE)
+run: $(BUILD)/opendb$(EXE)
+	./$(BUILD)/opendb$(EXE)
 
 test: $(BUILD)/test_runner$(EXE)
 	./$(BUILD)/test_runner$(EXE)
@@ -114,11 +114,11 @@ test: $(BUILD)/test_runner$(EXE)
 # Milestone-5 smoke test (spec §7): INSERT -> SELECT round trip in the REPL.
 # (Pure PowerShell via build.ps1 also works on Windows where bash / mingw
 # recipes mis-shell through cmd.exe per spec §6.3.)
-smoke: $(BUILD)/atomdb$(EXE)
+smoke: $(BUILD)/opendb$(EXE)
 	@echo "INSERT users {key:1,name:nikhil,age:30}" > build/smoke_input.txt
 	@echo "SELECT users"                              >> build/smoke_input.txt
 	@echo "EXIT"                                      >> build/smoke_input.txt
-	-./$(BUILD)/atomdb$(EXE) < build/smoke_input.txt
+	-./$(BUILD)/opendb$(EXE) < build/smoke_input.txt
 	@rm build/smoke_input.txt
 
 # -- Convenience include-dependency marker so source files track headers -----

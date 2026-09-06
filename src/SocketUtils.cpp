@@ -1,6 +1,6 @@
-#include "atomdb/frontend/SocketUtils.hpp"
+#include "opendb/frontend/SocketUtils.hpp"
 
-namespace atomdb {
+namespace opendb {
 namespace sockets {
 
 bool setNonBlocking(HttpServer::SocketHandle fd) {
@@ -115,4 +115,4 @@ int select(int nfds, fd_set* readfds, fd_set* writefds, fd_set* exceptfds,
 
 } // namespace sockets
 
-} // namespace atomdb
+} // namespace opendb

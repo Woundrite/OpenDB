@@ -3,18 +3,18 @@
 #include <sstream>
 #include <string>
 
-#include "atomdb/contracts/ICommandSource.hpp"
-#include "atomdb/core/EngineLoop.hpp"
-#include "atomdb/core/DeadlockDetector.hpp"
-#include "atomdb/core/LockManager.hpp"
-#include "atomdb/core/TransactionManager.hpp"
-#include "atomdb/frontend/ReplSource.hpp"
-#include "atomdb/storage/InMemoryStorageEngine.hpp"
-#include "atomdb/types/Command.hpp"
-#include "atomdb/types/Predicate.hpp"
-#include "atomdb/types/Tuple.hpp"
+#include "opendb/contracts/ICommandSource.hpp"
+#include "opendb/core/EngineLoop.hpp"
+#include "opendb/core/DeadlockDetector.hpp"
+#include "opendb/core/LockManager.hpp"
+#include "opendb/core/TransactionManager.hpp"
+#include "opendb/frontend/ReplSource.hpp"
+#include "opendb/storage/InMemoryStorageEngine.hpp"
+#include "opendb/types/Command.hpp"
+#include "opendb/types/Predicate.hpp"
+#include "opendb/types/Tuple.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 namespace {
 

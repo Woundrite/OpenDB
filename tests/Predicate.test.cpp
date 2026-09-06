@@ -3,11 +3,11 @@
 #include <memory>
 #include <vector>
 
-#include "atomdb/types/Predicate.hpp"
-#include "atomdb/types/Tuple.hpp"
-#include "atomdb/types/Value.hpp"
+#include "opendb/types/Predicate.hpp"
+#include "opendb/types/Tuple.hpp"
+#include "opendb/types/Value.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 // --- helpers used in the short-circuit test ---------------------------------
 // A small node that records whether evaluate() was called so we can assert

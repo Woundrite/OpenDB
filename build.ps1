@@ -18,9 +18,9 @@ function Invoke-Build {
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
 
-    Write-Host "[link] atomdb"
+    Write-Host "[link] opendb"
     $objs = Get-ChildItem -Path "$Root\build\src" -Filter "*.obj" | ForEach-Object { $_.FullName }
-    & g++ -Wall -Wextra -Wpedantic -Werror $objs -o "$Root\build/atomdb.exe" -pthread -lws2_32
+    & g++ -Wall -Wextra -Wpedantic -Werror $objs -o "$Root\build/opendb.exe" -pthread -lws2_32
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -38,7 +38,7 @@ function Invoke-Tests {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     # Ensure the library objects (src/*.cpp except main.cpp) are built and linked into
-    # the test runner. (src/main.cpp defines `main` for the atomdb executable; the test
+    # the test runner. (src/main.cpp defines `main` for the opendb executable; the test
     # runner has its own main in tests/main.cpp.)
     $needBuild = $false
     New-Item -ItemType Directory -Force -Path "$Root\build\src" | Out-Null
@@ -74,8 +74,8 @@ function Invoke-Tests {
 }
 
 function Invoke-Smoke {
-    if (-not (Test-Path "$Root\build\atomdb.exe")) {
-        Write-Host "build/atomdb.exe missing; building first."
+    if (-not (Test-Path "$Root\build\opendb.exe")) {
+        Write-Host "build/opendb.exe missing; building first."
         Invoke-Build
     }
     $inputFile = "$Root\build\smoke_input.txt"
@@ -84,7 +84,7 @@ INSERT users {key:1,name:nikhil,age:30}
 SELECT users
 EXIT
 '@
-    Get-Content $inputFile | & "$Root\build\atomdb.exe"
+    Get-Content $inputFile | & "$Root\build\opendb.exe"
 }
 
 switch ($args[0]) {

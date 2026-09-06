@@ -1,1 +1,102 @@
-{}
+{
+    "swarms": {
+        "default": {
+            "agents": {
+                "coder": {
+                    "model": "nvidia-nim/moonshotai/kimi-k3",
+                    "fallback_models": [
+                        "token-router/glm-5.3",
+                        "google/gemini-3.1-pro"
+                    ]
+                },
+                "reviewer": {
+                    "model": "google/gemini-3.1-pro",
+                    "fallback_models": [
+                        "token-router/glm-5.3",
+                        "nvidia-nim/moonshotai/kimi-k3"
+                    ]
+                },
+                "test_engineer": {
+                    "model": "google/gemini-3-flash",
+                    "fallback_models": [
+                        "nvidia-nim/deepseek-ai/deepseek-v4-flash",
+                        "token-router/glm-5.3"
+                    ]
+                },
+                "explorer": {
+                    "model": "google/gemini-3-flash",
+                    "fallback_models": [
+                        "openrouter/nemotron-3-ultra-free",
+                        "token-router/glm-5.3"
+                    ]
+                },
+                "sme": {
+                    "model": "token-router/glm-5.3",
+                    "fallback_models": [
+                        "google/gemini-3.1-pro",
+                        "nvidia-nim/moonshotai/kimi-k3"
+                    ]
+                },
+                "critic": {
+                    "model": "google/gemini-3.1-pro",
+                    "fallback_models": [
+                        "token-router/glm-5.3",
+                        "nvidia-nim/moonshotai/kimi-k3"
+                    ]
+                },
+                "docs": {
+                    "model": "google/gemini-3-flash",
+                    "fallback_models": [
+                        "openrouter/nemotron-3-ultra-free",
+                        "opencode/big-pickle"
+                    ]
+                },
+                "designer": {
+                    "model": "google/gemini-3.1-pro",
+                    "fallback_models": [
+                        "token-router/glm-5.3",
+                        "nvidia-nim/moonshotai/kimi-k3"
+                    ]
+                },
+                "critic_sounding_board": {
+                    "model": "nvidia-nim/moonshotai/kimi-k3",
+                    "fallback_models": [
+                        "google/gemini-3-flash",
+                        "openrouter/nemotron-3-ultra-free"
+                    ]
+                },
+                "critic_drift_verifier": {
+                    "model": "google/gemini-3-flash",
+                    "fallback_models": [
+                        "nvidia-nim/deepseek-ai/deepseek-v4-flash",
+                        "token-router/glm-5.3"
+                    ]
+                },
+                "critic_hallucination_verifier": {
+                    "model": "token-router/glm-5.3",
+                    "fallback_models": [
+                        "google/gemini-3-flash",
+                        "nvidia-nim/deepseek-ai/deepseek-v4-flash"
+                    ]
+                },
+                "critic_oversight": {
+                    "model": "google/gemini-3.1-pro",
+                    "fallback_models": [
+                        "token-router/glm-5.3",
+                        "nvidia-nim/moonshotai/kimi-k3"
+                    ]
+                },
+                "curator_init": {
+                    "model": "google/gemini-3-flash",
+                    "fallback_models": ["openrouter/nemotron-3-ultra-free"]
+                },
+                "curator_phase": {
+                    "model": "google/gemini-3-flash",
+                    "fallback_models": ["openrouter/nemotron-3-ultra-free"]
+                }
+            }
+        }
+    },
+    "max_iterations": 5,
+    "version": 2
+}

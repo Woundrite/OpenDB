@@ -17,9 +17,9 @@
 //        src/SqlParser.cpp example/02_persistent_file.cpp -o build/example_02
 // Run:
 //   ./build/example_02
-//   atomdb> INSERT users { id:1, name:persisted }
-//   atomdb> SELECT users
-//   atomdb> EXIT
+//   opendb> INSERT users { id:1, name:persisted }
+//   opendb> SELECT users
+//   opendb> EXIT
 //   ./build/example_02     # rows are still there
 //
 // In-memory equivalent (for comparison): swap the storage provider line for
@@ -31,14 +31,14 @@
 #include <iostream>
 #include <memory>
 
-#include "atomdb/core/DeadlockDetector.hpp"
-#include "atomdb/core/EngineLoop.hpp"
-#include "atomdb/core/LockManager.hpp"
-#include "atomdb/core/TransactionManager.hpp"
-#include "atomdb/frontend/ReplSource.hpp"
-#include "atomdb/storage/LocalFileStorageProvider.hpp"
+#include "opendb/core/DeadlockDetector.hpp"
+#include "opendb/core/EngineLoop.hpp"
+#include "opendb/core/LockManager.hpp"
+#include "opendb/core/TransactionManager.hpp"
+#include "opendb/frontend/ReplSource.hpp"
+#include "opendb/storage/LocalFileStorageProvider.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 int main() {
     namespace fs = std::filesystem;
@@ -82,7 +82,7 @@ int main() {
     ReplSource repl(std::cin, std::cout);
     EngineLoop loop(repl, engine, txnm, lock_mgr, deadlock);
 
-    std::cout << "\natomdb persistent-mode example"
+    std::cout << "\nopendb persistent-mode example"
               << "\n  storage : LocalFileStorageProvider (Pager-backed B-Tree)"
               << "\n  file    : " << path << (existed ? " (reopened)" : " (new)")
               << "\n  schema  : users(id INT PK, name TEXT)"

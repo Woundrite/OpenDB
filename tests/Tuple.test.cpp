@@ -1,9 +1,9 @@
 #include "test_framework.hpp"
 
-#include "atomdb/types/Tuple.hpp"
-#include "atomdb/types/Value.hpp"
+#include "opendb/types/Tuple.hpp"
+#include "opendb/types/Value.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 TEST(Tuple_Construct_InitializerList) {
     Tuple t = Tuple::make({{"age", Value::int32(30)},

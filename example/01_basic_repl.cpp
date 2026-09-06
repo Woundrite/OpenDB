@@ -1,6 +1,6 @@
 // example/01_basic_repl.cpp
 //
-// Minimum viable AtomDB usage: InMemory storage, REPL front-end, REPL-driven
+// Minimum viable OpenDB usage: InMemory storage, REPL front-end, REPL-driven
 // EngineLoop. This is the "SQLite-style embedded mode" — single process, no
 // separate server, type commands and read results on stdout.
 //
@@ -9,22 +9,22 @@
 //        src/SqlParser.cpp example/01_basic_repl.cpp -o build/example_01
 // Run:
 //   ./build/example_01
-//   atomdb> INSERT users { id:1, name:nikhil, age:30 }
-//   atomdb> SELECT users
-//   atomdb> SELECT users WHERE id = 1
-//   atomdb> EXIT
+//   opendb> INSERT users { id:1, name:nikhil, age:30 }
+//   opendb> SELECT users
+//   opendb> SELECT users WHERE id = 1
+//   opendb> EXIT
 
 #include <iostream>
 #include <memory>
 
-#include "atomdb/core/DeadlockDetector.hpp"
-#include "atomdb/core/EngineLoop.hpp"
-#include "atomdb/core/LockManager.hpp"
-#include "atomdb/core/TransactionManager.hpp"
-#include "atomdb/frontend/ReplSource.hpp"
-#include "atomdb/storage/InMemoryStorageProvider.hpp"
+#include "opendb/core/DeadlockDetector.hpp"
+#include "opendb/core/EngineLoop.hpp"
+#include "opendb/core/LockManager.hpp"
+#include "opendb/core/TransactionManager.hpp"
+#include "opendb/frontend/ReplSource.hpp"
+#include "opendb/storage/InMemoryStorageProvider.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 // A front-end receives Commands via ICommandSource::nextCommand() and presents
 // results via present(ResultSet/DbError). The built-in ReplSource is line-based
@@ -70,7 +70,7 @@ int main() {
     // 5. EngineLoop glues everything: pulls Commands, dispatches, presents.
     EngineLoop loop(repl, engine, txnm, lock_mgr, deadlock);
 
-    std::cout << "\natomdb sqlite-mode example"
+    std::cout << "\nopendb sqlite-mode example"
               << "\n  storage    : in-memory"
               << "\n  capabilities: RandomAccess, OrderedScan, Concurrent"
               << "\n  schema     : users(id INT PK, name TEXT, age INT)"

@@ -1,15 +1,15 @@
 #include "HttpServerIoThread.hpp"
 
-#include "atomdb/frontend/HttpServer.hpp"
-#include "atomdb/frontend/HttpSession.hpp"
-#include "atomdb/core/EngineDispatcher.hpp"
-#include "atomdb/frontend/SocketUtils.hpp"
+#include "opendb/frontend/HttpServer.hpp"
+#include "opendb/frontend/HttpSession.hpp"
+#include "opendb/core/EngineDispatcher.hpp"
+#include "opendb/frontend/SocketUtils.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cstring>
 
-namespace atomdb {
+namespace opendb {
 
 using namespace sockets;
 
@@ -340,4 +340,4 @@ void IoThread::closeConnection(Connection& c) {
     c.closed = true;
 }
 
-} // namespace atomdb
+} // namespace opendb

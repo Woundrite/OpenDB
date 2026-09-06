@@ -4,9 +4,9 @@
 #include <filesystem>
 #include <vector>
 
-#include "atomdb/storage/Pager.hpp"
+#include "opendb/storage/Pager.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 namespace {
 
@@ -30,7 +30,7 @@ std::vector<std::uint8_t> makePayload(std::uint8_t fill = 0xAB, std::size_t n = 
 } // namespace
 
 TEST(Pager_New_File_Has_Header_And_No_Data_Pages) {
-    TempFile tf("atomdb_pager_new.dat");
+    TempFile tf("opendb_pager_new.dat");
     Pager p(tf.path.string());
     EXPECT(p.isOpen());
     // Page 0 (header) counts.
@@ -38,7 +38,7 @@ TEST(Pager_New_File_Has_Header_And_No_Data_Pages) {
 }
 
 TEST(Pager_Allocate_And_Write_And_Read_RoundTrip) {
-    TempFile tf("atomdb_pager_alloc.dat");
+    TempFile tf("opendb_pager_alloc.dat");
     Pager p(tf.path.string());
     auto payload = makePayload(0xCD);
     Pager::PageId id = p.writePage(std::nullopt, payload);
@@ -53,7 +53,7 @@ TEST(Pager_Allocate_And_Write_And_Read_RoundTrip) {
 }
 
 TEST(Pager_FreeList_Push_Then_Allocate_Pops_From_List) {
-    TempFile tf("atomdb_pager_freelist.dat");
+    TempFile tf("opendb_pager_freelist.dat");
     Pager p(tf.path.string());
 
     // Allocate three pages.
@@ -77,7 +77,7 @@ TEST(Pager_FreeList_Push_Then_Allocate_Pops_From_List) {
 }
 
 TEST(Pager_FreeList_LIFO_Order) {
-    TempFile tf("atomdb_pager_lifo.dat");
+    TempFile tf("opendb_pager_lifo.dat");
     Pager p(tf.path.string());
 
     auto p0 = p.writePage(std::nullopt, makePayload());
@@ -97,7 +97,7 @@ TEST(Pager_FreeList_LIFO_Order) {
 }
 
 TEST(Pager_FreeList_Survives_Reopen) {
-    TempFile tf("atomdb_pager_reopen.dat");
+    TempFile tf("opendb_pager_reopen.dat");
     {
         Pager p(tf.path.string());
         auto p0 = p.writePage(std::nullopt, makePayload(0x10));
@@ -118,7 +118,7 @@ TEST(Pager_FreeList_Survives_Reopen) {
 }
 
 TEST(Pager_FreePage_Of_Unallocated_Id_Is_Noop) {
-    TempFile tf("atomdb_pager_freenoop.dat");
+    TempFile tf("opendb_pager_freenoop.dat");
     Pager p(tf.path.string());
     // Page 1 doesn't exist yet — freeing must not throw or alter page count.
     p.freePage(1);
@@ -126,7 +126,7 @@ TEST(Pager_FreePage_Of_Unallocated_Id_Is_Noop) {
 }
 
 TEST(Pager_Allocate_After_FreeList_Empty_Extends_File) {
-    TempFile tf("atomdb_pager_extend.dat");
+    TempFile tf("opendb_pager_extend.dat");
     Pager p(tf.path.string());
     auto p0 = p.writePage(std::nullopt, makePayload());
     p.freePage(p0);
@@ -142,7 +142,7 @@ TEST(Pager_Allocate_After_FreeList_Empty_Extends_File) {
 }
 
 TEST(Pager_ReadPage_Of_Invalid_Id_Returns_False) {
-    TempFile tf("atomdb_pager_invalid.dat");
+    TempFile tf("opendb_pager_invalid.dat");
     Pager p(tf.path.string());
     std::vector<std::uint8_t> out;
     EXPECT(!p.readPage(0, out));     // page 0 is metadata, not a data page
@@ -151,7 +151,7 @@ TEST(Pager_ReadPage_Of_Invalid_Id_Returns_False) {
 
 // Phase 6.5: Buddy allocator tests
 TEST(Pager_Buddy_AllocatePages_One_Returns_First_Free) {
-    TempFile tf("atomdb_buddy_1page.dat");
+    TempFile tf("opendb_buddy_1page.dat");
     Pager p(tf.path.string());
     auto ids = p.allocatePages(1);
     EXPECT_EQ(ids.size(), std::size_t{1});
@@ -159,7 +159,7 @@ TEST(Pager_Buddy_AllocatePages_One_Returns_First_Free) {
 }
 
 TEST(Pager_Buddy_AllocatePages_Two_Requests_2p_From_2p_Slab) {
-    TempFile tf("atomdb_buddy_2page.dat");
+    TempFile tf("opendb_buddy_2page.dat");
     Pager p(tf.path.string());
     auto ids = p.allocatePages(2);
     EXPECT_EQ(ids.size(), std::size_t{2});
@@ -170,7 +170,7 @@ TEST(Pager_Buddy_AllocatePages_Two_Requests_2p_From_2p_Slab) {
 }
 
 TEST(Pager_Buddy_AllocatePages_Three_Rounds_Up_To_4p_Slab) {
-    TempFile tf("atomdb_buddy_3page.dat");
+    TempFile tf("opendb_buddy_3page.dat");
     Pager p(tf.path.string());
     auto ids = p.allocatePages(3);
     EXPECT_EQ(ids.size(), std::size_t{3});
@@ -182,7 +182,7 @@ TEST(Pager_Buddy_AllocatePages_Three_Rounds_Up_To_4p_Slab) {
 }
 
 TEST(Pager_Buddy_Free_Coalesces_Two_Adjacent_2p_Into_4p) {
-    TempFile tf("atomdb_buddy_coalesce.dat");
+    TempFile tf("opendb_buddy_coalesce.dat");
     Pager p(tf.path.string());
     auto ids1 = p.allocatePages(2);
     auto ids2 = p.allocatePages(2);
@@ -198,7 +198,7 @@ TEST(Pager_Buddy_Free_Coalesces_Two_Adjacent_2p_Into_4p) {
 }
 
 TEST(Pager_Buddy_Free_Recursively_Coalesces_To_Max_Class) {
-    TempFile tf("atomdb_buddy_coalesce_recursive.dat");
+    TempFile tf("opendb_buddy_coalesce_recursive.dat");
     Pager p(tf.path.string());
     // Allocate and free 8 single pages to build up a larger free run
     std::vector<Pager::PageId> singles;
@@ -222,7 +222,7 @@ TEST(Pager_Buddy_Free_Recursively_Coalesces_To_Max_Class) {
 TEST(Pager_Buddy_V1_To_V2_Migration_Preserves_Allocations_And_Frees) {
     // Create a v1 file with some free pages
     {
-        TempFile tf("atomdb_v1_migrate.dat");
+        TempFile tf("opendb_v1_migrate.dat");
         Pager p(tf.path.string());
         auto p0 = p.writePage(std::nullopt, makePayload(0x11));
         auto p1 = p.writePage(std::nullopt, makePayload(0x22));
@@ -234,7 +234,7 @@ TEST(Pager_Buddy_V1_To_V2_Migration_Preserves_Allocations_And_Frees) {
     }
     // Reopen with v2 code - migration should preserve state
     {
-        Pager q("atomdb_v1_migrate.dat");
+        Pager q("opendb_v1_migrate.dat");
         EXPECT(q.pageCount() == 4); // header + 3 data pages
         EXPECT(q.freeListSize() == 1); // one free page
         auto reuse = q.writePage(std::nullopt, makePayload(0x44));
@@ -251,7 +251,7 @@ TEST(BTree_Large_Row_Stored_Across_MultiPage_Run_And_Freed_On_Delete) {
     // when a row exceeds the single-page payload capacity.
     // For now, verify the allocatePages/freePages round-trip works
     // at the Pager level for a size > 1 page.
-    TempFile tf("atomdb_buddy_multipage_btree.dat");
+    TempFile tf("opendb_buddy_multipage_btree.dat");
     Pager p(tf.path.string());
     
     // Allocate a 2-page run (simulating a large BTree node)

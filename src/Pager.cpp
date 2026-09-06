@@ -1,4 +1,4 @@
-#include "atomdb/storage/Pager.hpp"
+#include "opendb/storage/Pager.hpp"
 
 #include <algorithm>
 #include <array>
@@ -8,10 +8,10 @@
 #include <stdexcept>
 #include <unordered_set>
 
-#include "atomdb/contracts/IPageAllocator.hpp"
-#include "atomdb/storage/BuddyPageAllocator.hpp"
+#include "opendb/contracts/IPageAllocator.hpp"
+#include "opendb/storage/BuddyPageAllocator.hpp"
 
-namespace atomdb {
+namespace opendb {
 
 Pager::Pager(const std::string& uri,
              std::unique_ptr<IPageAllocator> allocator)
@@ -331,4 +331,4 @@ Pager::PageId Pager::extendFile(std::size_t n) {
     return start;
 }
 
-} // namespace atomdb
+} // namespace opendb

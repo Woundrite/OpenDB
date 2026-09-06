@@ -1,15 +1,15 @@
 #include "test_framework.hpp"
 
-#include "atomdb/core/TransactionManager.hpp"
-#include "atomdb/storage/CachingStorageEngine.hpp"
-#include "atomdb/storage/InMemoryStorageProvider.hpp"
-#include "atomdb/types/Schema.hpp"
-#include "atomdb/types/Tuple.hpp"
-#include "atomdb/types/TxnId.hpp"
-#include "atomdb/types/Value.hpp"
+#include "opendb/core/TransactionManager.hpp"
+#include "opendb/storage/CachingStorageEngine.hpp"
+#include "opendb/storage/InMemoryStorageProvider.hpp"
+#include "opendb/types/Schema.hpp"
+#include "opendb/types/Tuple.hpp"
+#include "opendb/types/TxnId.hpp"
+#include "opendb/types/Value.hpp"
 
 TEST(Caching_Get_Miss_Hits_Inner_Then_Caches) {
-    using namespace atomdb;
+    using namespace opendb;
     InMemoryStorageProvider inner;
     inner.open("in-memory://");
     Schema s; s.table = "users";
@@ -37,7 +37,7 @@ TEST(Caching_Get_Miss_Hits_Inner_Then_Caches) {
 }
 
 TEST(Caching_Put_Invalidates_Entry) {
-    using namespace atomdb;
+    using namespace opendb;
     InMemoryStorageProvider inner;
     inner.open("in-memory://");
     Schema s; s.table = "users";
@@ -77,7 +77,7 @@ TEST(Caching_Put_Invalidates_Entry) {
 }
 
 TEST(Caching_Scan_Forwarded_Through_Inner) {
-    using namespace atomdb;
+    using namespace opendb;
     InMemoryStorageProvider inner;
     inner.open("in-memory://");
     Schema s; s.table = "users";

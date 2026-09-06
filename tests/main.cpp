@@ -1,5 +1,5 @@
 #include "test_framework.hpp"
 
 int main() {
-    return ::atomdb::test::run_all();
+    return ::opendb::test::run_all();
 }

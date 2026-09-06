@@ -1,15 +1,15 @@
-#include "atomdb/storage/ShardedStorageProvider.hpp"
-#include "atomdb/storage/InMemoryStorageProvider.hpp"
-#include "atomdb/storage/LocalFileStorageProvider.hpp"
-#include "atomdb/core/TransactionManager.hpp"
-#include "atomdb/types/Value.hpp"
-#include "atomdb/types/Schema.hpp"
+#include "opendb/storage/ShardedStorageProvider.hpp"
+#include "opendb/storage/InMemoryStorageProvider.hpp"
+#include "opendb/storage/LocalFileStorageProvider.hpp"
+#include "opendb/core/TransactionManager.hpp"
+#include "opendb/types/Value.hpp"
+#include "opendb/types/Schema.hpp"
 #include "../tests/test_framework.hpp"
 #include <vector>
 #include <memory>
 #include <filesystem>
 
-using namespace atomdb;
+using namespace opendb;
 
 static std::unique_ptr<ShardedStorageProvider> makeSharded(int shardCount = 4) {
     std::vector<std::unique_ptr<IStorageProvider>> shards;

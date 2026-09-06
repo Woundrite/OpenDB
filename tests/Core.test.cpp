@@ -4,11 +4,11 @@
 #include <chrono>
 #include <thread>
 
-#include "atomdb/core/DeadlockDetector.hpp"
-#include "atomdb/core/LockManager.hpp"
-#include "atomdb/core/TransactionManager.hpp"
+#include "opendb/core/DeadlockDetector.hpp"
+#include "opendb/core/LockManager.hpp"
+#include "opendb/core/TransactionManager.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 // ---------------------------------------------------------------------------
 // TransactionManager (spec §5.1)
@@ -404,7 +404,7 @@ TEST(LockManager_TryAcquire_TimesOut) {
     lm.acquire(t1, "users", LockMode::Exclusive); // t1 holds exclusive lock
 
     // t2 tries with 10ms timeout — should time out
-    using atomdb::LockAcquireResult;
+    using opendb::LockAcquireResult;
     auto result = lm.tryAcquire(t2, "users", LockMode::Exclusive, std::chrono::milliseconds(10));
     EXPECT(result == LockAcquireResult::TimedOut);
     EXPECT(!lm.isGranted(t2, "users")); // lock not granted to t2
@@ -415,7 +415,7 @@ TEST(LockManager_TryAcquire_Grants_When_Available) {
     // tryAcquire with available lock grants immediately
     LockManager lm;
     TxnId t1{1};
-    using atomdb::LockAcquireResult;
+    using opendb::LockAcquireResult;
     auto result = lm.tryAcquire(t1, "users", LockMode::Shared, std::chrono::seconds(50));
     EXPECT(result == LockAcquireResult::Granted);
     EXPECT(lm.isGranted(t1, "users"));

@@ -29,7 +29,7 @@
 // |         -o build/example_05
 // |  Run:
 // |    ./build/example_05                              # in-memory
-// |    ./build/example_05 file:///tmp/atomdb.atoms   # persistent
+// |    ./build/example_05 file:///tmp/opendb.atoms   # persistent
 
 #include <cstdio>
 #include <iostream>
@@ -37,21 +37,21 @@
 #include <sstream>
 #include <string>
 
-#include "atomdb/core/DeadlockDetector.hpp"
-#include "atomdb/core/LockManager.hpp"
-#include "atomdb/core/TransactionManager.hpp"
-#include "atomdb/contracts/ICommandSource.hpp"
-#include "atomdb/frontend/SqlParser.hpp"
-#include "atomdb/storage/InMemoryStorageProvider.hpp"
-#include "atomdb/storage/LocalFileStorageProvider.hpp"
-#include "atomdb/types/Command.hpp"
-#include "atomdb/types/DbError.hpp"
-#include "atomdb/types/Result.hpp"
-#include "atomdb/types/Tuple.hpp"
-#include "atomdb/types/TxnId.hpp"
-#include "atomdb/types/Value.hpp"
+#include "opendb/core/DeadlockDetector.hpp"
+#include "opendb/core/LockManager.hpp"
+#include "opendb/core/TransactionManager.hpp"
+#include "opendb/contracts/ICommandSource.hpp"
+#include "opendb/frontend/SqlParser.hpp"
+#include "opendb/storage/InMemoryStorageProvider.hpp"
+#include "opendb/storage/LocalFileStorageProvider.hpp"
+#include "opendb/types/Command.hpp"
+#include "opendb/types/DbError.hpp"
+#include "opendb/types/Result.hpp"
+#include "opendb/types/Tuple.hpp"
+#include "opendb/types/TxnId.hpp"
+#include "opendb/types/Value.hpp"
 
-using namespace atomdb;
+using namespace opendb;
 
 // Format a tuple as "col=val, col=val, ..."
 static std::string fmtTuple(const Tuple& t) {
@@ -75,12 +75,12 @@ int main(int argc, char** argv) {
             return 1;
         }
         storage = std::move(p);
-        std::cout << "atomdb  persisting at " << argv[1] << "\n";
+        std::cout << "opendb  persisting at " << argv[1] << "\n";
     } else {
         auto p = std::make_unique<InMemoryStorageProvider>();
         p->open("in-memory://");
         storage = std::move(p);
-        std::cout << "atomdb  in-memory mode (no persistence)\n";
+        std::cout << "opendb  in-memory mode (no persistence)\n";
     }
 
     SqlParser parser;
