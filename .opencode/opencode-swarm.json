@@ -3,7 +3,7 @@
         "default": {
             "agents": {
                 "coder": {
-                    "model": "opencode/deepseek-v4-flash-free",
+                    "model": "opencode/nemotron-3-ultra-free",
                     "fallback_models": [
                         "nvidia/moonshotai/kimi-k3",
                         "google/gemini-3.1-pro-preview",
@@ -19,7 +19,7 @@
                     ]
                 },
                 "test_engineer": {
-                    "model": "opencode/deepseek-v4-flash-free",
+                    "model": "opencode/nemotron-3-ultra-free",
                     "fallback_models": [
                         "nvidia/deepseek-ai/deepseek-v4-flash",
                         "google/gemini-3.5-flash",
@@ -73,7 +73,7 @@
                     ]
                 },
                 "critic_drift_verifier": {
-                    "model": "opencode/deepseek-v4-flash-free",
+                    "model": "opencode/nemotron-3-ultra-free",
                     "fallback_models": [
                         "nvidia/deepseek-ai/deepseek-v4-flash",
                         "openrouter/nemotron-3.5-lightning-free"
