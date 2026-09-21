@@ -44,11 +44,17 @@ PageId BuddyPageAllocator::allocatePages(
             PageId start = freeBuddy_[k].back();
             freeBuddy_[k].pop_back();
 
-            // Split down if we found a larger class.
+            // Split down if we found a larger class. The split descends
+            // into the UPPER half and parks the lower half, so the pages
+            // returned are the highest addresses of the run. Adjacent
+            // pages freed in ascending order coalesce into one run; the
+            // most recently freed page then comes back first (LIFO),
+            // matching the historical stack free-list contract that
+            // Pager_FreeList_LIFO_Order pins down.
             while (k > targetClass) {
                 --k;
-                PageId buddy = start + (PageId(1) << k); // upper half
-                freeBuddy_[k].push_back(buddy);
+                freeBuddy_[k].push_back(start);   // park lower half
+                start = start + (PageId(1) << k); // descend into upper half
             }
             // Mark the requested portion as allocated.
             for (std::size_t i = 0; i < n; ++i) {
@@ -71,6 +77,14 @@ PageId BuddyPageAllocator::allocatePages(
     // The new pages are already marked allocated by onFileExtended().
 }
 
+// NOTE on accounting exactness: a freed run is parked as ONE entry of class
+// ceil_log2(n), so the pool counts 2^class pages for a true free length of n.
+// All in-repo callers pass n == 1 or power-of-two n (single-page frees,
+// buddy-slab frees, exact snapshot restores), for which the count is exact.
+// A non-power-of-two free (possible today only via migrateV1ToV2 on legacy v1
+// chains) over-counts and its overhang must never be handed out by a later
+// smaller split allocation — keep this in mind if multi-page arbitrary frees
+// ever become common; the fix is aligned power-of-two decomposition here.
 void BuddyPageAllocator::freePages(PageId start, std::size_t n) {
     std::lock_guard<std::mutex> lk(mu_);
     assert(n > 0);
@@ -138,6 +152,46 @@ void BuddyPageAllocator::onFileExtended(PageId startPageId, std::size_t n) {
     ensureBitmapSize(startPageId + n);
     for (std::size_t i = 0; i < n; ++i) {
         allocated_[startPageId + i] = true;
+    }
+}
+
+void BuddyPageAllocator::saveFreeRuns(std::vector<FreeRun>& out) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    out.clear();
+    for (std::size_t k = 0; k <= MAX_CLASS; ++k) {
+        for (PageId start : freeBuddy_[k]) {
+            out.push_back(FreeRun{start, static_cast<std::uint32_t>(k)});
+        }
+    }
+}
+
+void BuddyPageAllocator::loadFreeRuns(const FreeRun* runs, std::size_t count,
+                                      PageId pageCount) {
+    std::lock_guard<std::mutex> lk(mu_);
+    for (auto& cls : freeBuddy_) cls.clear();
+    ensureBitmapSize(pageCount); // marks every page allocated; runs punch holes
+    if (runs == nullptr) return;
+    for (std::size_t i = 0; i < count; ++i) {
+        const PageId start = runs[i].start;
+        const std::size_t k = runs[i].slabClass;
+        if (k > MAX_CLASS || start == 0 || start >= pageCount) continue;
+        // Clamp the run to the file: a persisted run may overhang pageCount
+        // when the free length wasn't a power of two (class rounds up).
+        // Pages past EOF don't exist, so they stay (trivially) allocated.
+        std::size_t len = std::size_t(1) << k;
+        if (start + len > pageCount) len = pageCount - start;
+        // Overlap guard: a corrupt snapshot must never mark a page free
+        // twice (that would hand the same page to two owners). Skip the
+        // whole run if any of its pages is already free.
+        bool overlap = false;
+        for (std::size_t j = 0; j < len; ++j) {
+            if (!allocated_[start + j]) { overlap = true; break; }
+        }
+        if (overlap) continue;
+        for (std::size_t j = 0; j < len; ++j) {
+            allocated_[start + j] = false;
+        }
+        freeBuddy_[k].push_back(start);
     }
 }
 

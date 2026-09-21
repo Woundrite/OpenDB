@@ -13,6 +13,16 @@
 
 namespace opendb {
 
+namespace {
+// v2 page-0 layout past the 28-byte fixed header (magic 4 + version 2 +
+// reserved 2 + pageCount 4 + allocator scratch 16):
+//   offset 32: u32 free-run count N (0..kMaxPersistedRuns)
+//   offset 36: N x { u32 slabClass, u32 start } (8 bytes each)
+constexpr std::size_t kFreeRunsOffset = 32;
+constexpr std::size_t kMaxPersistedRuns =
+    (Pager::PAGE_SIZE - kFreeRunsOffset - sizeof(std::uint32_t)) / 8;
+} // namespace
+
 Pager::Pager(const std::string& uri,
              std::unique_ptr<IPageAllocator> allocator)
     : allocator_(std::move(allocator)) {
@@ -219,6 +229,27 @@ bool Pager::loadHeader() {
         header_.freeHead = INVALID_PAGE; // unused in v2
         // Load allocator state from the header bytes.
         allocator_->loadHeader(header_.allocatorHeader, header_.pageCount);
+        // Restore the free-run snapshot when its count is structural;
+        // per-run bounds are enforced by loadFreeRuns itself. A corrupt
+        // count (or pre-persistence-era zeros) keeps the all-allocated
+        // state — free pages leak safely, exactly as after a crash
+        // before close().
+        std::uint32_t runCount = 0;
+        std::memcpy(&runCount, buf.data() + kFreeRunsOffset, 4);
+        if (runCount <= kMaxPersistedRuns) {
+            std::vector<IPageAllocator::FreeRun> runs;
+            runs.reserve(runCount);
+            for (std::uint32_t i = 0; i < runCount; ++i) {
+                IPageAllocator::FreeRun r;
+                std::memcpy(&r.slabClass,
+                            buf.data() + kFreeRunsOffset + 4 + i * 8, 4);
+                std::memcpy(&r.start,
+                            buf.data() + kFreeRunsOffset + 4 + i * 8 + 4, 4);
+                runs.push_back(r);
+            }
+            allocator_->loadFreeRuns(runs.data(), runs.size(),
+                                     header_.pageCount);
+        }
         return true;
     }
 
@@ -285,6 +316,21 @@ void Pager::flushHeader() {
         // v2: allocator header at offset 12.
         allocator_->serializeHeader(header_.allocatorHeader);
         std::memcpy(page.data() + 12, header_.allocatorHeader, 16);
+        // v2: free-run snapshot at offset 32. The whole page is rewritten
+        // from zeros every flush, so a shrunken pool leaves no stale tail.
+        // Runs past the cap are dropped: they leak as allocated after a
+        // reopen (safe; identical to crashing before close()).
+        std::vector<IPageAllocator::FreeRun> runs;
+        allocator_->saveFreeRuns(runs);
+        const std::uint32_t n = static_cast<std::uint32_t>(
+            std::min<std::size_t>(runs.size(), kMaxPersistedRuns));
+        std::memcpy(page.data() + kFreeRunsOffset, &n, 4);
+        for (std::uint32_t i = 0; i < n; ++i) {
+            std::memcpy(page.data() + kFreeRunsOffset + 4 + i * 8,
+                        &runs[i].slabClass, 4);
+            std::memcpy(page.data() + kFreeRunsOffset + 4 + i * 8 + 4,
+                        &runs[i].start, 4);
+        }
     }
     writeRaw(0, page);
 }

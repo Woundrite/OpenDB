@@ -3,96 +3,104 @@
         "default": {
             "agents": {
                 "coder": {
-                    "model": "nvidia-nim/moonshotai/kimi-k3",
+                    "model": "opencode/deepseek-v4-flash-free",
                     "fallback_models": [
-                        "token-router/glm-5.3",
-                        "google/gemini-3.1-pro"
+                        "nvidia/moonshotai/kimi-k3",
+                        "google/gemini-3.1-pro-preview",
+                        "openrouter/minimax-m2.7-free"
                     ]
                 },
                 "reviewer": {
-                    "model": "google/gemini-3.1-pro",
+                    "model": "opencode/nemotron-3-ultra-free",
                     "fallback_models": [
-                        "token-router/glm-5.3",
-                        "nvidia-nim/moonshotai/kimi-k3"
+                        "nvidia/deepseek-ai/deepseek-v4-flash",
+                        "google/gemini-3.1-pro-preview",
+                        "openrouter/nemotron-3.5-lightning-free"
                     ]
                 },
                 "test_engineer": {
-                    "model": "google/gemini-3-flash",
+                    "model": "opencode/deepseek-v4-flash-free",
                     "fallback_models": [
-                        "nvidia-nim/deepseek-ai/deepseek-v4-flash",
-                        "token-router/glm-5.3"
+                        "nvidia/deepseek-ai/deepseek-v4-flash",
+                        "google/gemini-3.5-flash",
+                        "openrouter/nemotron-3.5-lightning-free"
                     ]
                 },
                 "explorer": {
-                    "model": "google/gemini-3-flash",
+                    "model": "opencode/nemotron-3.5-lightning-free",
                     "fallback_models": [
-                        "openrouter/nemotron-3-ultra-free",
-                        "token-router/glm-5.3"
+                        "openrouter/nemotron-3.5-lightning-free",
+                        "nvidia/deepseek-ai/deepseek-v4-flash",
+                        "google/gemini-3.5-flash"
                     ]
                 },
                 "sme": {
-                    "model": "token-router/glm-5.3",
+                    "model": "opencode/nemotron-3-ultra-free",
                     "fallback_models": [
-                        "google/gemini-3.1-pro",
-                        "nvidia-nim/moonshotai/kimi-k3"
+                        "nvidia/moonshotai/kimi-k3",
+                        "openrouter/minimax-m2.7-free",
+                        "google/gemini-3.1-pro-preview"
                     ]
                 },
                 "critic": {
-                    "model": "google/gemini-3.1-pro",
+                    "model": "opencode/nemotron-3-ultra-free",
                     "fallback_models": [
-                        "token-router/glm-5.3",
-                        "nvidia-nim/moonshotai/kimi-k3"
+                        "nvidia/moonshotai/kimi-k3",
+                        "google/gemini-3.1-pro-preview",
+                        "openrouter/minimax-m2.7-free"
                     ]
                 },
                 "docs": {
-                    "model": "google/gemini-3-flash",
+                    "model": "opencode/nemotron-3.5-lightning-free",
                     "fallback_models": [
-                        "openrouter/nemotron-3-ultra-free",
-                        "opencode/big-pickle"
+                        "openrouter/nemotron-3.5-lightning-free",
+                        "nvidia/deepseek-ai/deepseek-v4-flash"
                     ]
                 },
                 "designer": {
-                    "model": "google/gemini-3.1-pro",
+                    "model": "opencode/nemotron-3-ultra-free",
                     "fallback_models": [
-                        "token-router/glm-5.3",
-                        "nvidia-nim/moonshotai/kimi-k3"
+                        "nvidia/moonshotai/kimi-k3",
+                        "openrouter/minimax-m2.7-free",
+                        "google/gemini-3.1-pro-preview"
                     ]
                 },
                 "critic_sounding_board": {
-                    "model": "nvidia-nim/moonshotai/kimi-k3",
+                    "model": "opencode/mimo-v2.5-free",
                     "fallback_models": [
-                        "google/gemini-3-flash",
-                        "openrouter/nemotron-3-ultra-free"
+                        "openrouter/nemotron-3.5-lightning-free",
+                        "nvidia/moonshotai/kimi-k3"
                     ]
                 },
                 "critic_drift_verifier": {
-                    "model": "google/gemini-3-flash",
+                    "model": "opencode/deepseek-v4-flash-free",
                     "fallback_models": [
-                        "nvidia-nim/deepseek-ai/deepseek-v4-flash",
-                        "token-router/glm-5.3"
+                        "nvidia/deepseek-ai/deepseek-v4-flash",
+                        "openrouter/nemotron-3.5-lightning-free"
                     ]
                 },
                 "critic_hallucination_verifier": {
-                    "model": "token-router/glm-5.3",
+                    "model": "opencode/nemotron-3.5-lightning-free",
                     "fallback_models": [
-                        "google/gemini-3-flash",
-                        "nvidia-nim/deepseek-ai/deepseek-v4-flash"
+                        "nvidia/deepseek-ai/deepseek-v4-flash",
+                        "openrouter/nemotron-3.5-lightning-free"
                     ]
                 },
                 "critic_oversight": {
-                    "model": "google/gemini-3.1-pro",
+                    "model": "opencode/nemotron-3-ultra-free",
                     "fallback_models": [
-                        "token-router/glm-5.3",
-                        "nvidia-nim/moonshotai/kimi-k3"
+                        "nvidia/moonshotai/kimi-k3",
+                        "google/gemini-3.1-pro-preview",
+                        "openrouter/minimax-m2.7-free"
                     ]
                 },
                 "curator_init": {
-                    "model": "google/gemini-3-flash",
-                    "fallback_models": ["openrouter/nemotron-3-ultra-free"]
+                    "model": "opencode/nemotron-3.5-lightning-free",
+                    "fallback_models": ["openrouter/nemotron-3.5-lightning-free"]
                 },
                 "curator_phase": {
-                    "model": "google/gemini-3-flash",
-                    "fallback_models": ["openrouter/nemotron-3-ultra-free"]
+                    "model": "opencode/nemotron-3.5-lightning-free",
+                    "fallback_models": ["openrouter/nemotron-3.5-lightning-free"]
                 }
             }
         }

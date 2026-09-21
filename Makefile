@@ -68,7 +68,7 @@ TST_FILES := $(wildcard tests/*.test.cpp) tests/main.cpp
 TST_OBJ   := $(patsubst tests/%.cpp,$(TST_OBJDIR)/%.o,$(TST_FILES))
 
 # -- Phony ---------------------------------------------------------------------
-.PHONY: all run test smoke clean
+.PHONY: all run test smoke clean include-deps
 
 all: $(BUILD)/opendb$(EXE) $(BUILD)/test_runner$(EXE)
 
@@ -119,16 +119,28 @@ smoke: $(BUILD)/opendb$(EXE)
 	@echo "SELECT users"                              >> build/smoke_input.txt
 	@echo "EXIT"                                      >> build/smoke_input.txt
 	-./$(BUILD)/opendb$(EXE) < build/smoke_input.txt
-	@rm build/smoke_input.txt
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -Command "Remove-Item -Force build/smoke_input.txt"
+else
+	rm build/smoke_input.txt
+endif
 
 # -- Convenience include-dependency marker so source files track headers -----
+# NOTE: the recipe is intentionally empty. The historical `@true` broke every
+# build under native-Windows make (cmd.exe has no `true` builtin), and an
+# empty phony rule is a portable no-op under both cmd.exe and sh.
 include-deps:
-	@true
 
 # -- Clean ---------------------------------------------------------------------
+# NOTE: PowerShell (not cmd `rmdir` / sh `rm`) so one recipe works whether
+# native-Windows make drives cmd.exe or MSYS2 make drives sh: powershell.exe
+# resolves via PATH in both shells.
 clean:
-	@if exist $(BUILD) rmdir /S /Q $(BUILD) 2>nul & rem Windows cmd fallback
-	@rm -rf $(BUILD) 2>/dev/null || true     # POSIX fallback
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -Command "if (Test-Path $(BUILD)) { Remove-Item -Recurse -Force $(BUILD) }"
+else
+	rm -rf $(BUILD)
+endif
 
 # -- Ignore header file pattern triggers (force a compile when needed) --------
 $(SRC_OBJ): | include-deps

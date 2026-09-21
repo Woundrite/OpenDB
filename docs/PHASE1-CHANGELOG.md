@@ -2,16 +2,14 @@
 
 **Status: 7 of 8 tasks fully implemented; task 1.8 is declaration-only.**
 
-Full suite: **247 `TEST()` cases across 17 files; 243 pass / 4 fail** via `make test`
-(no hangs — see BuddyPageAllocator fix below). The 4 failures are pre-existing,
-deterministic bugs in Pager free-list reuse ordering and the v1→v2 on-disk format
-migration, unrelated to Phase 1 changes:
+Full suite: **249 `TEST()` cases across 17 files; 249 pass / 0 fail** via `make test`
+(no hangs — see BuddyPageAllocator fix below). Four Pager free-list/migration
+tests failed deterministically before the post-Phase-1 free-list fix
+(see section below); all green since, plus one new v1-migration test
+(248 → 249 total).
 
 ```
-FAIL LocalFile_DropTable_FreePages_Survive_Reopen
-FAIL Pager_FreeList_LIFO_Order
-FAIL Pager_FreeList_Survives_Reopen
-FAIL Pager_Buddy_V1_To_V2_Migration_Preserves_Allocations_And_Frees
+==== PASSED 249 / FAILED 0 ====
 ```
 
 ## Changes
@@ -80,6 +78,25 @@ FAIL Pager_Buddy_V1_To_V2_Migration_Preserves_Allocations_And_Frees
   creation routed through PowerShell because cmd.exe `mkdir` rejects forward-slash
   paths. Plain `make` and `make test` now work unmodified on MSYS2/GCC 14.
 
+### Post-Phase-1: Pager free-list fixes (4 failing tests → 0)
+Three distinct root causes, not one cascading bug:
+- **LIFO order** (`Pager_FreeList_LIFO_Order`): coalescing merged pages 2+3 into
+  one class-1 run and the split loop returned the *lower* half first. Fix: splits
+  now descend into the upper half and park the lower half, so the most recently
+  freed page comes back first (`src/BuddyPageAllocator.cpp`).
+- **Free-list persistence** (`Pager_FreeList_Survives_Reopen`,
+  `LocalFile_DropTable_FreePages_Survive_Reopen`): the v2 header stored only
+  diagnostics — the free pool never reached disk. Fix: `IPageAllocator` gained
+  defaulted `saveFreeRuns`/`loadFreeRuns` virtuals; `BuddyPageAllocator`
+  snapshots exact `(start, slabClass)` pairs; `Pager::flushHeader`/`loadHeader`
+  persist them at page-0 offset 32 (u32 count + 8 bytes/run, 507-run cap;
+  over-cap runs and corrupt snapshots degrade to safe leaks, never corruption).
+- **Test bug** (`Pager_Buddy_V1_To_V2_Migration_...`): `TempFile` was scoped inside
+  the setup block, deleting the file before the reopen block ran. Fix: hoisted to
+  function scope; plus a new `Pager_V1_OnDisk_Image_Migrates_FreeChain_On_Open`
+  test with a byte-crafted v1 image, since current code only writes v2 and the
+  `migrateV1ToV2()` path was otherwise dead code in the suite.
+
 ---
 
 ## API / Configuration Summary
@@ -103,6 +120,8 @@ FAIL Pager_Buddy_V1_To_V2_Migration_Preserves_Allocations_And_Frees
 
 None at the source level: existing constructors gained defaulted trailing
 parameters, and removed members (`HttpApi`/`HttpSession` local JSON parsers) were
-private implementation details. Test-suite status is **not** "all green": 243/247
-with the four Pager failures above pending root-cause (likely one free-list
-bookkeeping bug cascading into the migration/reopen tests).
+private implementation details. `IPageAllocator` gained defaulted
+`saveFreeRuns`/`loadFreeRuns` virtuals (source-compatible; override them for
+free-list durability across reopen). Test-suite status is **all green**: 249/249.
+The former four Pager failures had three distinct root causes (see
+"Post-Phase-1: Pager free-list fixes" above), not one cascading bug.

@@ -38,9 +38,10 @@ namespace opendb {
 // freeHead chain (v1 format preserved).
 //
 // On-disk state (preserved across open/close):
-//   - The singly-linked freeHead chain in page 0 offset 12 (v1 layout) is
-//     REWRITTEN on every freePages() so a v1 reader still sees a valid
-//     free-list chain if it opens the file. The v2 header bytes are
+//   - saveFreeRuns()/loadFreeRuns() snapshot and restore the exact
+//     (start, slabClass) pairs into page 0 (see Pager::flushHeader), so a
+//     reopen resumes with a bit-identical free pool, including LIFO split
+//     order within each class. The v2 16-byte header scratch stays
 //     diagnostic-only (freeRunCount + maxClass).
 //
 // Concurrency: all public methods take mu_ (matches LockManager /
@@ -62,6 +63,9 @@ public:
     void onFileExtended(PageId startPageId, std::size_t n) override;
     void serializeHeader(std::uint8_t out[16]) const override;
     void loadHeader(const std::uint8_t in[16], PageId pageCount) override;
+    void saveFreeRuns(std::vector<FreeRun>& out) const override;
+    void loadFreeRuns(const FreeRun* runs, std::size_t count,
+                      PageId pageCount) override;
 
     // Test-only: max slab class currently in use (deepest class with any runs).
     std::size_t maxObservedClass() const;

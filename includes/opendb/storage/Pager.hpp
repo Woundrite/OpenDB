@@ -32,7 +32,8 @@ namespace opendb {
 //   - 4 bytes: version (1 = v1 freeHead; 2 = v2 with IPageAllocator bookkeeping)
 //   - 8 bytes: total pages allocated
 //   - 4 bytes: free-list head page ID (v1) OR allocator diagnostic fields (v2)
-//   - remainder: free-list bitmap / array (rest of 4 KiB)
+//   - v2 offset 32: u32 free-run count N, then N x { u32 slabClass, u32 start }
+//     (the allocator's exact free pool; rest of 4 KiB is zero padding)
 // Data pages (id >= 1) hold B-Tree nodes or slotted rows.
 // Each data page has an 8-byte header: CRC32 + 4 bytes reserved.
 // Remaining 4088 bytes are payload.

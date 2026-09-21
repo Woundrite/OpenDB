@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <vector>
 
 namespace opendb {
 
@@ -80,6 +81,31 @@ public:
     // `freePages()` for free runs BEFORE invoking loadHeader(), so the
     // allocator's bitmap is already in sync by the time this is called.
     virtual void loadHeader(const std::uint8_t in[16], PageId pageCount) = 0;
+
+    // A single parked free run: `start` is the first page id and
+    // `slabClass` selects the run length (2^slabClass pages). Persisting
+    // the exact (start, class) pairs — rather than re-deriving runs from
+    // a bitmap — restores the allocator to bit-identical state on reopen,
+    // including runs whose class overhangs the true free length.
+    struct FreeRun {
+        PageId start = INVALID_PAGE;
+        std::uint32_t slabClass = 0;
+    };
+
+    // Snapshot the current free pool into `out` (cleared first). The Pager
+    // persists this alongside the header so free pages survive close/reopen.
+    // Default is empty (allocator opts out of free-list persistence; any
+    // pages it had parked leak safely as allocated after a reopen).
+    virtual void saveFreeRuns(std::vector<FreeRun>& out) const { out.clear(); }
+
+    // Restore a snapshot previously produced by saveFreeRuns. `pageCount`
+    // is the on-disk page count. Implementations must clear current free
+    // state first, ignore runs that fail bounds checks (never resurrect a
+    // page outside [1, pageCount)), and never mark the same page free twice.
+    virtual void loadFreeRuns(const FreeRun* runs, std::size_t count,
+                              PageId pageCount) {
+        (void)runs; (void)count; (void)pageCount;
+    }
 
     virtual ~IPageAllocator() = default;
 };

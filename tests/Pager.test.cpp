@@ -1,7 +1,10 @@
 #include "test_framework.hpp"
 
+#include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <vector>
 
 #include "opendb/storage/Pager.hpp"
@@ -220,9 +223,11 @@ TEST(Pager_Buddy_Free_Recursively_Coalesces_To_Max_Class) {
 }
 
 TEST(Pager_Buddy_V1_To_V2_Migration_Preserves_Allocations_And_Frees) {
-    // Create a v1 file with some free pages
+    // TempFile lives at function scope: it must NOT be destroyed (which
+    // deletes the file) before the reopen block below runs.
+    TempFile tf("opendb_v1_migrate.dat");
+    // Create a file with some free pages
     {
-        TempFile tf("opendb_v1_migrate.dat");
         Pager p(tf.path.string());
         auto p0 = p.writePage(std::nullopt, makePayload(0x11));
         auto p1 = p.writePage(std::nullopt, makePayload(0x22));
@@ -232,9 +237,9 @@ TEST(Pager_Buddy_V1_To_V2_Migration_Preserves_Allocations_And_Frees) {
         (void)p0;
         (void)p2;
     }
-    // Reopen with v2 code - migration should preserve state
+    // Reopen - free state must survive the close/reopen round trip
     {
-        Pager q("opendb_v1_migrate.dat");
+        Pager q(tf.path.string());
         EXPECT(q.pageCount() == 4); // header + 3 data pages
         EXPECT(q.freeListSize() == 1); // one free page
         auto reuse = q.writePage(std::nullopt, makePayload(0x44));
@@ -244,6 +249,37 @@ TEST(Pager_Buddy_V1_To_V2_Migration_Preserves_Allocations_And_Frees) {
         EXPECT(q.readPage(reuse, out));
         EXPECT(out[0] == 0x44);
     }
+}
+
+TEST(Pager_V1_OnDisk_Image_Migrates_FreeChain_On_Open) {
+    // A genuine v1 image, byte-crafted: version=1 header with a one-link
+    // freeHead chain (page 2 -> end). Current code only ever writes v2, so
+    // without this the migrateV1ToV2() path is dead code in the suite.
+    TempFile tf("opendb_v1_genuine.dat");
+    {
+        std::vector<std::uint8_t> file(Pager::PAGE_SIZE * 4, 0);
+        const std::uint32_t magic = Pager::MAGIC;
+        const std::uint16_t version = 1;
+        const Pager::PageId pageCount = 4;
+        const Pager::PageId freeHead = 2;
+        const Pager::PageId chainEnd = Pager::INVALID_PAGE;
+        std::memcpy(file.data(), &magic, 4);
+        std::memcpy(file.data() + 4, &version, 2);
+        std::memcpy(file.data() + 8, &pageCount, 4);
+        std::memcpy(file.data() + 12, &freeHead, 4);
+        std::memcpy(file.data() + 2 * Pager::PAGE_SIZE, &chainEnd, 4);
+        std::ofstream out(tf.path.string(), std::ios::binary);
+        out.write(reinterpret_cast<const char*>(file.data()),
+                  static_cast<std::streamsize>(file.size()));
+    }
+    Pager q(tf.path.string());
+    EXPECT_EQ(q.pageCount(), Pager::PageId{4});
+    EXPECT_EQ(q.freeListSize(), std::size_t{1});
+    auto reuse = q.writePage(std::nullopt, makePayload(0x55));
+    EXPECT(reuse == 2); // the chained free page comes back first
+    std::vector<std::uint8_t> out;
+    EXPECT(q.readPage(reuse, out));
+    EXPECT(out[0] == 0x55);
 }
 
 TEST(BTree_Large_Row_Stored_Across_MultiPage_Run_And_Freed_On_Delete) {
