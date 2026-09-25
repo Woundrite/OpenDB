@@ -365,7 +365,10 @@ private:
         std::uint32_t d = doy - (153*mp+2)/5 + 1;                                    // [1, 31]
         std::uint32_t m = mp < 10 ? mp + 3 : mp - 9;                                // [1, 12]
         if (m <= 2) y += 1;  // year correction for proleptic Gregorian
-        char buf[16];
+        // Buffer sized past GCC's provable worst case for -Wformat-truncation:
+        // %04d over int32 -> 11 chars, %02u over uint32 -> 10 each; max content
+        // 11+1+10+1+10 = 33 chars + NUL = 34; rounded up with headroom.
+        char buf[40];
         std::snprintf(buf, sizeof(buf), "%04d-%02u-%02u", y, m, d);
         return buf;
     }
@@ -380,7 +383,9 @@ private:
         std::int32_t mm = static_cast<std::int32_t>((rem / 60) % 60);
         std::int32_t ss = static_cast<std::int32_t>(rem % 60);
         std::string date_part = dateToIso(days);
-        char buf[24];
+        // Worst case: "T" + 3x %02d over int32 (11 each) + 2x ':' + "." +
+        // %03lld (20) + "Z" = 58 chars + NUL = 59; 64 is provably sufficient.
+        char buf[64];
         std::snprintf(buf, sizeof(buf), "T%02d:%02d:%02d.%03lldZ",
                       hh, mm, ss, static_cast<long long>(ms));
         return date_part + buf;
