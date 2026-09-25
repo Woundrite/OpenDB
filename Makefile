@@ -73,7 +73,10 @@ TST_OBJ   := $(patsubst tests/%.cpp,$(TST_OBJDIR)/%.o,$(TST_FILES))
 all: $(BUILD)/opendb$(EXE) $(BUILD)/test_runner$(EXE)
 
 # -- Directory bootstrap (created up-front) -----------------------------------
-$(SRC_OBJDIR) $(TST_OBJDIR):
+# $(BUILD) itself needs a rule too: the link targets below order-only-depend on
+# it directly, and under -j Make can require 'build' before any sibling job has
+# run a child rule — previously failing with "No rule to make target 'build'".
+$(BUILD) $(SRC_OBJDIR) $(TST_OBJDIR):
 	$(MKDIR) $@
 
 # -- Object compile rules ------------------------------------------------------

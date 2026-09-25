@@ -23,7 +23,7 @@ Link 1 expanded to **K1+K2** per the independent audit — K2 was masked by K1 a
 |---|------|----------|----------|
 | K1 | `make` with default `-Werror` fails on Linux GCC: `-Wformat-truncation` false positive on `snprintf` in `dateToIso`/`timestampToIso` (`includes/opendb/types/Value.hpp:~369,~384`, surfaces via any TU including `Value.hpp`). Undocumented workaround: `make WARNINGS="-Wall -Wextra -Wpedantic"`. Windows MSYS2 unaffected. **Do NOT fix by dropping `-Werror` globally.** Verify: plain `make` produces both binaries, 249/249 unchanged. | team live repro | HIGH — **FIXED chunk 1 (`eca7e21`), confirmed by independent Linux re-run** |
 | K2 | `src/SocketUtils.cpp`: `g_wsaInitialized`/`g_wsaMu` declared unconditionally, used only inside `#if defined(_WIN32)` → `-Werror=unused-variable` on non-Windows. Pre-existing since Phase 5 (`72e0a2a`); masked by K1 because the build aborted at `Value.hpp` first. Fix: declarations moved inside the `_WIN32` guard; POSIX keeps an inline no-op `ensureWsa()`. | independent audit (Linux GCC) | HIGH — **FIXED chunk 1 (second commit)** |
-| K3 (candidate) | One observed `-j8` from-clean failure (clean → parallel make exited 2 after directory-creation output only; immediate serial rerun EXIT=0). Suspected order-only `mkdir` race between the two object dirs under `-j` from clean. Serial documented path (`make`, `make test`) verified deterministic. Observed once, MSYS2 — needs isolation; **must not** be masked by "rerun until green". | local observation | MEDIUM (build reliability) |
+| K3 | Makefile link targets order-only-depend on `$(BUILD)`, but only the child dirs (`$(SRC_OBJDIR)`, `$(TST_OBJDIR)`) had a bootstrap rule — no rule for `build` itself. Serial `make` masked it (first child `mkdir -p build/obj` creates the parent); under `-j` Make can require `$(BUILD)` before any child rule ran → "No rule to make target 'build'". Team: 5/5 red pre-fix. **FIXED: added `$(BUILD)` to the same shared bootstrap rule** (`$(BUILD) $(SRC_OBJDIR) $(TST_OBJDIR): $(MKDIR) $@`); post-fix 5/5 green on the team's exact `rm -rf build; make -j8` repro (local MSYS2). | team 5× repro + local 5× green | HIGH — **FIXED chunk 1 (third commit)** |
 
 ## L. Transport layer (all CRITICAL — server dies on first body POST)
 
@@ -33,6 +33,8 @@ Link 1 expanded to **K1+K2** per the independent audit — K2 was masked by K1 a
 | L2 | Consequence: `totalExpected` excludes the body (`~:298`) → JSON payload stripped → downstream parse fails on every body POST | derived from L1 |
 | L3 | Error write-back segfaults: read loop moves `unique_ptr<Connection>` out of `conns_` during `handleRead()` but leaves the key → `IoThread::writeTo()` (called synchronously from that same stack) finds present-but-null entry and dereferences it, no null check. Live: exit 139, `_M_data (this=0x28)` — null `this` + field offset | `writeTo` `:~82-87`; checkout sites `:~196,~223`. Fix: guard `it->second` non-null, and either keep the connection in the map during processing or use a secondary raw-pointer registry |
 | L4 | Net effect: any POST `/query` with a JSON body kills the process (curl 52 "Empty reply", exit 139) | team live repro against `build/opendb --server` |
+| L3a | **Chunk-2 scope, NOT APPLIED (logged from independent review of the WIP).** `inflight_` is declared and read, never written — both checkout sites in `run()` move the connection out of `conns_` without registering it, so `writeTo()` finds nothing in either map and **silently drops the response**: server no longer crashes, but curl now hangs → "Empty reply" (curl 52/timeout shape). Chunk-2 fix: at both checkout sites, under the same lock, add `inflight_[fd] = c.get();` after the move and `inflight_.erase(fd);` before reinsertion/close. | team grep + live test of the WIP files |
+| L3b | **Chunk-2 scope, NOT APPLIED (same review).** Finding 1: the `writeTo()` null-check on the primary `conns_` lookup is correct — server no longer segfaults with it — keep it. Finding 3: L1 (`clPos + 14`) is **untouched in the WIP** — body still truncates to zero until L1 lands even after L3a is fixed. | team live test + diff read |
 
 ## M. Methodology
 
@@ -99,6 +101,7 @@ Zero end-to-end coverage of the real transport: socket accept → header parse �
 | C7 | Result sets fully materialized then serialized — no streaming/backpressure on huge SELECTs | `EngineDispatcher.cpp:199-214` |
 | C8 | REPL locks wait forever (blocking `acquire`; no timeout unlike dispatcher's 50s) | `EngineLoop.hpp:93` |
 | C9 | `queryTimeout` is session-cumulative, boundary-checked only — single long SELECT uninterruptible (code honest; README not) | `EngineDispatcher.cpp:84-100,154` |
+| C10 | **CONFIRMED Windows startup-stability defect** (upgraded from "harness artifact" — falsified by in-console repro). The server intermittently exits ~1–2 s after a *successful* listen with **zero requests**: clean `bye` print (main() returned, i.e. `http.join()` returned) with no captured exit code/error. Local runs this session: died pre-request in 4 of 5 live attempts across BOTH console patterns (2× redirected-stdio, 1× in-console background, 2× in triage), plus 1× died mid-POST (the L-class signature). Linux stays idle-alive with stdin closed and serves requests (team). No Windows reproducer for the team, and the trigger is unidentified — needs instrumentation of `HttpServer::listen`/`join` and the io-loop break paths (`HttpServerIoThread::run` `rc < 0` path). **Blocks Windows-side chunk-2 live verification until characterized; Linux verification unaffected.** | `build/smoke_idle.ps1` 2×, `tmp_triage.ps1` 2×, smoke runs |
 | C10 | **OPEN-unconfirmed.** Windows idle-exit: under `Start-Process -RedirectStandardOutput/Error` the server exits ~1 s after a *successful* listen with zero requests (2/2 via `build/smoke_idle.ps1`); not observed with direct in-console backgrounding (stays up, dies only on first body POST — the L-class signature). Linux with stdin closed stays idle-alive (independent run) — consistent with a Windows console/stdio-teardown harness artifact, not proof. Chunk-2 live verification must use the in-console pattern; characterize or reclassify there. | `build/smoke_idle.ps1` (2×) |
 
 ## D. Durability risks
@@ -211,6 +214,17 @@ Zero end-to-end coverage of the real transport: socket accept → header parse �
   reply, exit 139) — unchanged, awaiting chunk 2. Local serial `make` clean-tree EXIT=0;
   `test_runner` 249/249 with K1+K2 in. C10 idle-exit downgraded from "resolved (harness artifact)"
   to OPEN-unconfirmed per the independent run's scope note.
+- 2026-09-25 — chunk 1 close-out, K3: fix = `$(BUILD)` rule added to the shared bootstrap
+  (`Makefile`). Team's pre-fix repro (5/5 red) → post-fix local 5/5 green (`build` always created).
+  Acceptance battery, **each run twice (serial / -j8)**:
+  (1) `rm-rf-clean && make` EXIT 0 both ways, both binaries both ways, no `WARNINGS` override;
+  (2) `test_runner` 249/249 after EACH build mode;
+  (3) K1/K2 non-regression — six consecutive `-Werror` builds compiled `Value.hpp`+`SocketUtils.cpp`
+  clean (any trip = build failure by policy);
+  (4) N.4 triage after each build mode: steps 1–2 green; step 3 fails — on Windows the server exited
+  pre-request in both triage runs (see C10 — now a confirmed startup-stability defect, distinct from
+  the L-series), on Linux the POST death (L1–L4) stands per the team's runs. Step 4 unreachable in
+  both. Chunk-2 findings L3a/L3b logged (inflight_ never written; L1 still open) — not applied.
 
 ## Test-suite reality
 
