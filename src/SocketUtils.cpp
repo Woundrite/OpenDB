@@ -38,21 +38,24 @@ int write(HttpServer::SocketHandle fd, const void* buf, int len) {
 #endif
 }
 
+#if defined(_WIN32)
 namespace {
-bool g_wsaInitialized = false;
-std::mutex g_wsaMu;
+bool g_wsaInitialized = false;  // Windows-only: read/written solely on _WIN32 paths.
+std::mutex g_wsaMu;             // (Declaring these unconditionally trips
+                                // -Werror=unused-variable on non-Windows builds.)
 
 void ensureWsa() {
-#if defined(_WIN32)
     std::lock_guard<std::mutex> lk(g_wsaMu);
     if (!g_wsaInitialized) {
         WSADATA wsaData;
         WSAStartup(MAKEWORD(2, 2), &wsaData);
         g_wsaInitialized = true;
     }
-#endif
 }
 } // anonymous namespace
+#else
+inline void ensureWsa() {}  // no-op on POSIX — nothing to initialize
+#endif
 
 bool bindAndListen(std::uint16_t port, HttpServer::SocketHandle& outFd, std::uint16_t& outPort) {
     ensureWsa();

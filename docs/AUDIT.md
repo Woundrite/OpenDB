@@ -12,6 +12,8 @@ K1 → L1–L4 + N1(test) → B3 (live-verify) → B1 → B2 → B4/B8 → C2/C3
 
 B-series doc examples are blocked by TWO stacked defects: L1/L2 (body stripped → parse error) AND B1
 (positional columns → empty named reads). Doc claims (A5) only become true after both land.
+Link 1 expanded to **K1+K2** per the independent audit — K2 was masked by K1 and blocks the same
+"plain `make` succeeds" acceptance criterion.
 
 ---
 
@@ -19,7 +21,9 @@ B-series doc examples are blocked by TWO stacked defects: L1/L2 (body stripped �
 
 | # | Item | Evidence | Severity |
 |---|------|----------|----------|
-| K1 | `make` with default `-Werror` fails on Linux GCC: `-Wformat-truncation` false positive on `snprintf` in `dateToIso`/`timestampToIso` (`includes/opendb/types/Value.hpp:~369,~384`, surfaces via any TU including `Value.hpp`). Undocumented workaround: `make WARNINGS="-Wall -Wextra -Wpedantic"`. Windows MSYS2 unaffected. **Do NOT fix by dropping `-Werror` globally.** Fix targets: wider provably-bounded buffers, `#pragma GCC diagnostic` push/pop on the two calls, or manual digit assembly. Verify: plain `make` produces both binaries, 249/249 unchanged. | team live repro | HIGH (blocks documented onboarding; proves BUILD.md "Linux fully supported" false) |
+| K1 | `make` with default `-Werror` fails on Linux GCC: `-Wformat-truncation` false positive on `snprintf` in `dateToIso`/`timestampToIso` (`includes/opendb/types/Value.hpp:~369,~384`, surfaces via any TU including `Value.hpp`). Undocumented workaround: `make WARNINGS="-Wall -Wextra -Wpedantic"`. Windows MSYS2 unaffected. **Do NOT fix by dropping `-Werror` globally.** Verify: plain `make` produces both binaries, 249/249 unchanged. | team live repro | HIGH — **FIXED chunk 1 (`eca7e21`), confirmed by independent Linux re-run** |
+| K2 | `src/SocketUtils.cpp`: `g_wsaInitialized`/`g_wsaMu` declared unconditionally, used only inside `#if defined(_WIN32)` → `-Werror=unused-variable` on non-Windows. Pre-existing since Phase 5 (`72e0a2a`); masked by K1 because the build aborted at `Value.hpp` first. Fix: declarations moved inside the `_WIN32` guard; POSIX keeps an inline no-op `ensureWsa()`. | independent audit (Linux GCC) | HIGH — **FIXED chunk 1 (second commit)** |
+| K3 (candidate) | One observed `-j8` from-clean failure (clean → parallel make exited 2 after directory-creation output only; immediate serial rerun EXIT=0). Suspected order-only `mkdir` race between the two object dirs under `-j` from clean. Serial documented path (`make`, `make test`) verified deterministic. Observed once, MSYS2 — needs isolation; **must not** be masked by "rerun until green". | local observation | MEDIUM (build reliability) |
 
 ## L. Transport layer (all CRITICAL — server dies on first body POST)
 
@@ -41,6 +45,9 @@ B-series doc examples are blocked by TWO stacked defects: L1/L2 (body stripped �
 ```bash
 # N.1 K1:  git clean -xfd && make        → fails at -Wformat-truncation (Linux GCC)
 #          workaround (NOT the fix): make WARNINGS="-Wall -Wextra -Wpedantic"
+# N.1b K2: same clean make then fails one file later at SocketUtils.cpp:42
+#          (-Werror=unused-variable, g_wsaInitialized declared outside the _WIN32
+#          guard) — was masked by K1. Both must pass for "plain make succeeds".
 # N.2 L1-L4:
 rm -rf /tmp/opendb_data && mkdir -p /tmp/opendb_data
 ./build/opendb --server --uri file:///tmp/opendb_data/mydb --port 8099 --workers 4 & sleep 1
@@ -92,6 +99,7 @@ Zero end-to-end coverage of the real transport: socket accept → header parse �
 | C7 | Result sets fully materialized then serialized — no streaming/backpressure on huge SELECTs | `EngineDispatcher.cpp:199-214` |
 | C8 | REPL locks wait forever (blocking `acquire`; no timeout unlike dispatcher's 50s) | `EngineLoop.hpp:93` |
 | C9 | `queryTimeout` is session-cumulative, boundary-checked only — single long SELECT uninterruptible (code honest; README not) | `EngineDispatcher.cpp:84-100,154` |
+| C10 | **OPEN-unconfirmed.** Windows idle-exit: under `Start-Process -RedirectStandardOutput/Error` the server exits ~1 s after a *successful* listen with zero requests (2/2 via `build/smoke_idle.ps1`); not observed with direct in-console backgrounding (stays up, dies only on first body POST — the L-class signature). Linux with stdin closed stays idle-alive (independent run) — consistent with a Windows console/stdio-teardown harness artifact, not proof. Chunk-2 live verification must use the in-console pattern; characterize or reclassify there. | `build/smoke_idle.ps1` (2×) |
 
 ## D. Durability risks
 
@@ -194,6 +202,15 @@ Zero end-to-end coverage of the real transport: socket accept → header parse �
 | A21 | `build.ps1` comment | "209/209 tests" → 249 (A3 sibling) |
 
 ---
+
+## Verification log
+
+- 2026-09-25 — chunk 1 (`fix/audit-k1`): K1 **confirmed fixed on Linux GCC** by independent re-audit
+  (all `Value.hpp` consumers compile clean under default `-Werror`). Same run unmasked **K2**
+  (fixed in the same chunk, second commit). L1–L4 re-confirmed live-failing on Linux (curl empty
+  reply, exit 139) — unchanged, awaiting chunk 2. Local serial `make` clean-tree EXIT=0;
+  `test_runner` 249/249 with K1+K2 in. C10 idle-exit downgraded from "resolved (harness artifact)"
+  to OPEN-unconfirmed per the independent run's scope note.
 
 ## Test-suite reality
 
