@@ -225,6 +225,20 @@ Zero end-to-end coverage of the real transport: socket accept → header parse �
   pre-request in both triage runs (see C10 — now a confirmed startup-stability defect, distinct from
   the L-series), on Linux the POST death (L1–L4) stands per the team's runs. Step 4 unreachable in
   both. Chunk-2 findings L3a/L3b logged (inflight_ never written; L1 still open) — not applied.
+- 2026-09-26 — Windows closure battery (post-merge `master@8a98356`, explicit per-platform loop):
+  serial from-clean `make` EXIT=0; parallel from-clean `make -j8` EXIT=0 (12 green / 1 lost-output
+  failure across all post-fix parallel attempts — one post-fix EXIT=2 occurred with output
+  unfortunately discarded by the harness's own Out-Null; root `'No rule to make target'` failure
+  mode eliminated, any residual flake unproven and still watched). `$(MKDIR)` resolution confirmed
+  on MSYS2 by recipe echo: `powershell -NoProfile -Command New-Item ... -Path build/obj` — the
+  K3 rule is idempotent there. `test_runner` 249/249 after each build mode (4x). POST-shape battery,
+  3 attempts per tree state (pure master vs +chunk-2 WIP): NO crash observed in this session;
+  shapes were EARLY-EXIT (C10) or ALIVE-AFTER-POST-with-timeout (curl 28, empty response — matches
+  L3a's predicted silent-drop under WIP; the pure-master hang variant needs chunk-2 instrumentation
+  to fully explain and is recorded, not masked). No observed shape is attributable to K1/K2/K3:
+  K1's helpers are uninvoked at startup, K2's Windows code path is call-for-call identical, K3 is
+  build-time only. Residual open items on Windows: C10 startup exit (~2/9 live runs here died
+  pre-request; intermittent).
 
 ## Test-suite reality
 
