@@ -81,10 +81,17 @@ void IoThread::join() {
 
 void IoThread::writeTo(HttpServer::SocketHandle fd, const std::string& data) {
     std::lock_guard<std::mutex> lk(mu_);
-    auto it = conns_.find(fd);
-    if (it != conns_.end()) {
+    if (auto it = conns_.find(fd); it != conns_.end() && it->second) {
         it->second->writeBuffer = data;
         it->second->writeOffset = 0;
+        return;
+    }
+    // The connection may be checked out of conns_ on run()'s stack while its
+    // request is being processed (handleRead/handleWrite). Deliver via the
+    // in-flight view instead of dereferencing the null conns_ entry.
+    if (auto inf = inflight_.find(fd); inf != inflight_.end() && inf->second) {
+        inf->second->writeBuffer = data;
+        inf->second->writeOffset = 0;
     }
 }
 

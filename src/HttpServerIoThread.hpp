@@ -94,8 +94,14 @@ private:
     std::atomic<bool> running_{false};
     std::thread thread_;
 
-    std::mutex mu_; // guards conns_, wake_pipe_ writing
+    std::mutex mu_; // guards conns_ and inflight_
     std::unordered_map<HttpServer::SocketHandle, std::unique_ptr<Connection>> conns_;
+    // Connections currently checked out of conns_ by run() while their request
+    // is processed (non-owning — the unique_ptr lives on run()'s stack for the
+    // duration). writeTo() must consult this so a response produced during
+    // handleRead()/handleWrite() can still reach its connection instead of
+    // dereferencing the present-but-null conns_ entry.
+    std::unordered_map<HttpServer::SocketHandle, Connection*> inflight_;
 
 #if defined(_WIN32)
     HttpServer::SocketHandle wake_read_fd_ = -1; // read end of wake pipe
