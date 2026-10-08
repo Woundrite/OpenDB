@@ -97,13 +97,25 @@ curl -v -m 5 http://localhost:8099/query -H 'Content-Type: application/json' \
 ## N.5. B13/B14 — BTree split severs sibling chain; commit loses staged writes (probes)
 
 ```bash
-# N.5 (from repo root; probes committed at tools/probes/):
+# N.5 (from repo root; probes committed at tools/probes/; chunk-3 falsifiable repro):
 g++ -std=c++2b -Iincludes tools/probes/btree_probe.cpp src/BTree.cpp src/Pager.cpp src/BuddyPageAllocator.cpp -o build/btree_probe
 g++ -std=c++2b -Iincludes tools/probes/commit_probe.cpp src/BTree.cpp src/Pager.cpp src/BuddyPageAllocator.cpp -o build/commit_probe
 ./build/btree_probe ; ./build/commit_probe
-#   Expected AFTER the splitLeaf fix: all three insert orders scan=400/400;
-#   commit probe: commit-reachable=400, reader sees 400/400. Both exit 0.
-#   Broken at HEAD 69cb019 (both probes exit 1):
+#
+# ACCEPTANCE for chunk 3 (SHAPE-BASED — do NOT compare against specific
+# broken numbers; those are seed/payload-dependent):
+#   btree_probe : scan count == inserted count (400/400) for ascending,
+#                 descending AND random orders; point-gets == inserted in all
+#                 three orders; exit 0.
+#   commit_probe: commit-reachable == staged (400); reader sees 400/400;
+#                 exit 0.
+#
+# Expected output AFTER the splitLeaf fix (shape): all three insert orders
+# scan=400/400 OK; commit probe: commit-reachable=400, reader sees 400/400;
+# both probes exit 0.
+#
+# Broken output at 69cb019 (shape: descending/random scan << inserted while
+# point-gets == inserted; commit-reachable << staged; both probes exit 1):
 #     Independent reviewer (Linux GCC 13.3):
 #       ascending  scan=400/400 OK
 #       descending scan=70/400   (point-gets find all 400)
