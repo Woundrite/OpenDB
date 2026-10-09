@@ -171,8 +171,11 @@ private:
     // Allocate a new page and initialize as leaf or internal.
     Pager::PageId newPage(NodeType type);
 
-    // Split leaf page.
-    void splitLeaf(Pager::PageId leaf_id, const std::vector<LeafEntry>& entries,
+    // Split leaf page. `hdr` is the split leaf's current header; its
+    // right_sibling must be carried onto the new right page so the leaf
+    // chain stays intact (B13).
+    void splitLeaf(Pager::PageId leaf_id, const NodeHeader& hdr,
+                   const std::vector<LeafEntry>& entries,
                    Pager::PageId& new_right, Value& promoted_key);
 
     // Split internal page.

@@ -1,7 +1,9 @@
 #include "test_framework.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -284,4 +286,167 @@ TEST(BTree_Scan_Stops_When_Callback_Returns_False) {
         return count < 5; // stop after 5 entries
     });
     EXPECT_EQ(count, 5);
+}
+
+// ---- chunk 3 regression: sibling-chain preservation across splits (B13/B14) ----
+// The original suite only inserted ascending keys, so every split happened at
+// the rightmost leaf, where right_sibling was already 0 — hiding the severed
+// chain. These tests force splits at non-rightmost positions; each one fails
+// on the unfixed code and passes after the splitLeaf fix.
+
+namespace {
+
+std::vector<int> shuffledKeys(int n, std::uint64_t seed) {
+    std::vector<int> keys;
+    for (int i = 1; i <= n; ++i) keys.push_back(i);
+    std::shuffle(keys.begin(), keys.end(), std::mt19937_64(seed));
+    return keys;
+}
+
+Tuple tinyRow(int v) {
+    return Tuple::make({{"v", Value::int64(v)}});
+}
+
+// Scan must report every key exactly once, in strictly ascending order.
+bool scanIsCompleteAndSorted(BTree& bt, const TxnId& t, std::size_t expected) {
+    std::size_t count = 0;
+    std::int64_t last = 0; // all keys are >= 1
+    bool sorted = true;
+    bt.scan(t, 100, [&](const Value& key, const BTree::LookupResult& r) {
+        if (r.tombstone) return true;
+        ++count;
+        std::int64_t k = key.asInt64();
+        if (k <= last) sorted = false;
+        last = k;
+        return true;
+    });
+    return count == expected && sorted;
+}
+
+} // namespace
+
+TEST(BTree_Descending_Inserts_Scan_Count_Equals_Inserted) {
+    cleanup(tmpFile("desc_scan"));
+    Pager p(tmpFile("desc_scan"));
+    BTree bt(p);
+    bt.createNew();
+
+    TxnId t{1};
+    for (int k = 400; k >= 1; --k) {
+        EXPECT(bt.put(Value::int64(k), 1, t.value(), false, tinyRow(k)));
+    }
+
+    std::size_t scanned = 0;
+    bt.scan(t, 100, [&](const Value&, const BTree::LookupResult& r) {
+        if (!r.tombstone) ++scanned;
+        return true;
+    });
+    EXPECT_EQ(scanned, std::size_t{400});
+}
+
+TEST(BTree_Shuffled_Inserts_Scan_Count_Equals_Inserted) {
+    cleanup(tmpFile("shuf_scan"));
+    Pager p(tmpFile("shuf_scan"));
+    BTree bt(p);
+    bt.createNew();
+
+    TxnId t{1};
+    for (int k : shuffledKeys(400, 12345)) {
+        EXPECT(bt.put(Value::int64(k), 1, t.value(), false, tinyRow(k)));
+    }
+
+    std::size_t scanned = 0;
+    bt.scan(t, 100, [&](const Value&, const BTree::LookupResult& r) {
+        if (!r.tombstone) ++scanned;
+        return true;
+    });
+    EXPECT_EQ(scanned, std::size_t{400});
+}
+
+TEST(BTree_Scan_Returns_Sorted_Keys_For_Every_Insert_Order) {
+    TxnId t{1};
+
+    // Ascending.
+    {
+        cleanup(tmpFile("scanorder"));
+        Pager p(tmpFile("scanorder"));
+        BTree bt(p);
+        bt.createNew();
+        for (int k = 1; k <= 400; ++k)
+            bt.put(Value::int64(k), 1, t.value(), false, tinyRow(k));
+        EXPECT(scanIsCompleteAndSorted(bt, t, 400));
+    }
+    // Descending.
+    {
+        cleanup(tmpFile("scanorder"));
+        Pager p(tmpFile("scanorder"));
+        BTree bt(p);
+        bt.createNew();
+        for (int k = 400; k >= 1; --k)
+            bt.put(Value::int64(k), 1, t.value(), false, tinyRow(k));
+        EXPECT(scanIsCompleteAndSorted(bt, t, 400));
+    }
+    // Shuffled (fixed seed).
+    {
+        cleanup(tmpFile("scanorder"));
+        Pager p(tmpFile("scanorder"));
+        BTree bt(p);
+        bt.createNew();
+        for (int k : shuffledKeys(400, 12345))
+            bt.put(Value::int64(k), 1, t.value(), false, tinyRow(k));
+        EXPECT(scanIsCompleteAndSorted(bt, t, 400));
+    }
+}
+
+TEST(BTree_Shuffled_Staged_Writes_All_Reachable_By_scanAll) {
+    cleanup(tmpFile("staged_reach"));
+    Pager p(tmpFile("staged_reach"));
+    BTree bt(p);
+    bt.createNew();
+
+    TxnId writer{77};
+    for (int k : shuffledKeys(400, 777)) {
+        EXPECT(bt.put(Value::int64(k), 0 /*staged*/, writer.value(), false, tinyRow(k)));
+    }
+
+    // What LocalFileStorageProvider::commit() does: scanAll() must reach
+    // every staged write of the transaction.
+    std::size_t reachable = 0;
+    bt.scanAll([&](const BTree::RawEntry& e) {
+        if (e.commitSeq == 0 && e.txnId == writer.value()) ++reachable;
+        return true;
+    });
+    EXPECT_EQ(reachable, std::size_t{400});
+}
+
+TEST(BTree_Interleaved_Inserts_Splits_At_Mixed_Positions) {
+    cleanup(tmpFile("interleaved"));
+    Pager p(tmpFile("interleaved"));
+    BTree bt(p);
+    bt.createNew();
+
+    TxnId t{1};
+    // Phase 1: ascending batch (splits at the right edge).
+    for (int k = 1; k <= 150; ++k)
+        bt.put(Value::int64(k), 1, t.value(), false, tinyRow(k));
+    // Phase 2: descending batch above the current range (fills the rightmost
+    // leaf, then splits at interior positions as the batch grows downward).
+    for (int k = 600; k >= 451; --k)
+        bt.put(Value::int64(k), 1, t.value(), false, tinyRow(k));
+    // Phase 3: interleaved low/high pairs filling the middle from both ends
+    // (splits at mixed positions).
+    for (int k = 0; k < 150; ++k) {
+        bt.put(Value::int64(151 + k), 1, t.value(), false, tinyRow(151 + k));
+        bt.put(Value::int64(450 - k), 1, t.value(), false, tinyRow(450 - k));
+    }
+
+    EXPECT(scanIsCompleteAndSorted(bt, t, 600));
+
+    // Point-gets still find every key (they never depended on the chain).
+    int got = 0;
+    for (int k = 1; k <= 600; ++k) {
+        auto r = bt.get(Value::int64(k), t, 100);
+        if (r.found && !r.tombstone) ++got;
+    }
+    EXPECT_EQ(got, 600);
 }

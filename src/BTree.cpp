@@ -293,7 +293,7 @@ bool BTree::put(const Value& key,
     if (hdr.num_entries > MAX_LEAF_ENTRIES || approxBytes() > Pager::DATA_PAGE_PAYLOAD_SIZE - 64) {
         Pager::PageId new_right;
         Value promoted_key;
-        splitLeaf(leaf_id, leaf, new_right, promoted_key);
+        splitLeaf(leaf_id, hdr, leaf, new_right, promoted_key);
 
         // Insert promoted key into parent (or create new root).
         insertIntoParent(leaf_id, promoted_key, new_right);
@@ -395,7 +395,8 @@ void BTree::insertIntoParent(Pager::PageId left_child, const Value& key, Pager::
 }
 // ---- splitLeaf --------------------------------------------------------------
 
-void BTree::splitLeaf(Pager::PageId leaf_id, const std::vector<LeafEntry>& entries,
+void BTree::splitLeaf(Pager::PageId leaf_id, const NodeHeader& hdr,
+                      const std::vector<LeafEntry>& entries,
                       Pager::PageId& new_right, Value& promoted_key) {
     std::size_t mid = entries.size() / 2;
 
@@ -404,6 +405,11 @@ void BTree::splitLeaf(Pager::PageId leaf_id, const std::vector<LeafEntry>& entri
 
     promoted_key = right_entries.front().key; // first key of right page
 
+    // B13 fix: capture the split leaf's existing right_sibling BEFORE any
+    // page is rewritten. The new right page inherits it so the leaf chain
+    // stays intact; the left page points at the new right page.
+    const Pager::PageId old_sibling = hdr.right_sibling;
+
     // Allocate right page first (needed for left's right_sibling pointer).
     new_right = newPage(NodeType::Leaf);
 
@@ -411,8 +417,8 @@ void BTree::splitLeaf(Pager::PageId leaf_id, const std::vector<LeafEntry>& entri
     NodeHeader lhdr{NodeType::Leaf, static_cast<std::uint16_t>(left_entries.size()), new_right};
     saveNode(leaf_id, lhdr, {}, left_entries);
 
-    // Write right page.
-    NodeHeader rhdr{NodeType::Leaf, static_cast<std::uint16_t>(right_entries.size()), 0};
+    // Write right page, carrying the old sibling forward (B13 fix).
+    NodeHeader rhdr{NodeType::Leaf, static_cast<std::uint16_t>(right_entries.size()), old_sibling};
     saveNode(new_right, rhdr, {}, right_entries);
 }
 
